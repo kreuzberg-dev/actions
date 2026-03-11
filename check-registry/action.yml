@@ -1,0 +1,46 @@
+name: Check Registry for Existing Version
+description: >
+  Query a package registry to determine if a specific version already exists.
+  Supports: pypi, npm, rubygems, hex, maven, nuget, cratesio, packagist, homebrew.
+
+inputs:
+  registry:
+    description: "Registry to check: pypi | npm | rubygems | hex | maven | nuget | cratesio | packagist | homebrew"
+    required: true
+  package:
+    description: "Package name (e.g. 'kreuzberg', '@kreuzberg/node-linux-x64-gnu', 'dev.kreuzberg:kreuzberg')"
+    required: true
+  version:
+    description: "Version to check for"
+    required: true
+  extra-packages:
+    description: |
+      Additional packages to check (one per line, format: output_key=package_name).
+      Example:
+        wasm_exists=@kreuzberg/html-to-markdown-wasm
+        ts_exists=@kreuzberg/html-to-markdown
+    required: false
+    default: ""
+  tap-repo:
+    description: "Homebrew tap repository (e.g. kreuzberg-dev/homebrew-tap). Required for homebrew registry."
+    required: false
+    default: ""
+
+outputs:
+  exists:
+    description: "Whether the primary package version exists (true/false)"
+    value: ${{ steps.check.outputs.exists }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check registry
+      id: check
+      shell: bash
+      env:
+        INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_PACKAGE: ${{ inputs.package }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        INPUT_TAP_REPO: ${{ inputs.tap-repo }}
+      run: ${{ github.action_path }}/scripts/check.sh
