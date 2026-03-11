@@ -1,0 +1,41 @@
+version: "3"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  setup:
+    desc: Install pre-commit hooks and dev environment
+    cmds:
+      - uv lock --check || uv lock
+      - uv sync --group dev
+      - pre-commit install
+
+  update:
+    desc: Update pre-commit hooks and dependencies
+    cmds:
+      - pre-commit autoupdate
+      - uv sync --group dev --upgrade
+
+  lint:
+    desc: Run all linters via pre-commit (includes actionlint, shellcheck, shfmt)
+    cmds:
+      - pre-commit run --all-files
+
+  test:
+    desc: Run action test workflows locally via act
+    cmds:
+      - act -l
+      - echo "Run 'task test:act -- test-setup-rust.yml' to test a specific action"
+
+  test:act:
+    desc: Run a specific test workflow locally (usage{{":"}} task test:act -- test-setup-rust.yml)
+    cmds:
+      - act -W .github/workflows/{{.CLI_ARGS}}
+
+  validate:
+    desc: Run lint (pre-commit handles actionlint + shellcheck + shfmt)
+    cmds:
+      - task: lint

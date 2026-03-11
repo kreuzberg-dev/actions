@@ -1,0 +1,78 @@
+name: Setup OpenSSL
+description: Install and expose OpenSSL headers/libs across platforms
+runs:
+  using: composite
+  steps:
+    - name: Install OpenSSL (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/linux-install.sh
+
+    - name: Configure OpenSSL environment (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/linux-configure.sh
+
+    - name: Get Homebrew prefix (macOS)
+      if: runner.os == 'macOS'
+      id: homebrew-prefix
+      shell: bash
+      run: echo "prefix=$(brew --prefix)" >> $GITHUB_OUTPUT
+
+    - name: Restore OpenSSL cache (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v5
+      id: cache-macos
+      with:
+        path: ${{ steps.homebrew-prefix.outputs.prefix }}/opt/openssl@3/
+        key: openssl-${{ runner.os }}-${{ runner.arch }}-v3
+        restore-keys: |
+          openssl-${{ runner.os }}-
+
+    - name: Install OpenSSL (macOS)
+      if: runner.os == 'macOS' && steps.cache-macos.outputs.cache-hit != 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/macos-install.sh
+
+    - name: Configure OpenSSL environment (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/macos-configure.sh
+
+    - name: Check vcpkg installation (Windows)
+      if: runner.os == 'Windows'
+      id: vcpkg-check
+      shell: pwsh
+      run: |
+        if (Test-Path "C:\vcpkg\installed\x64-windows-static-md\include\openssl") {
+          echo "installed=true" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "installed=false" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Restore OpenSSL cache (Windows)
+      if: runner.os == 'Windows' && steps.vcpkg-check.outputs.installed != 'true'
+      uses: actions/cache@v5
+      id: cache-windows
+      with:
+        path: |
+          C:\vcpkg\installed\x64-windows-static-md
+          C:\vcpkg\downloads
+        key: openssl-${{ runner.os }}-vcpkg-v4
+        restore-keys: |
+          openssl-${{ runner.os }}-vcpkg-
+
+    - name: Install OpenSSL (Windows)
+      if: runner.os == 'Windows' && steps.vcpkg-check.outputs.installed != 'true' && steps.cache-windows.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: ${{ github.action_path }}/scripts/windows-install.ps1
+
+    - name: Verify OpenSSL installation (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: ${{ github.action_path }}/scripts/windows-verify.ps1
+
+    - name: Configure OpenSSL environment (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: ${{ github.action_path }}/scripts/windows-configure.ps1

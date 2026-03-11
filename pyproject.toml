@@ -1,0 +1,37 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatchling" ]
+
+[project]
+name = "kreuzberg-actions"
+version = "0.0.0"
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+
+[dependency-groups]
+dev = [
+  "mypy",
+  "ruff",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+lint.select = [ "ALL" ]
+lint.ignore = [ "ANN", "COM812", "D", "ISC001" ]
+lint.per-file-ignores."scripts/**" = [ "S603", "S607", "T201" ]
+
+[tool.pyproject-fmt]
+keep_full_version = true
+max_supported_python = "3.14"
+
+[tool.mypy]
+strict = true
+python_version = "3.10"

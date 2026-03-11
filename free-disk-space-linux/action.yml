@@ -1,0 +1,30 @@
+name: Free Disk Space (Linux)
+description: Free up disk space on Linux runners
+
+inputs:
+  show-initial:
+    description: Show initial disk space before cleanup
+    required: false
+    default: "true"
+  show-final:
+    description: Show final disk space after cleanup
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Show initial disk space (Linux)
+      if: runner.os == 'Linux' && inputs.show-initial == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/show-disk-space.sh "Initial disk space"
+
+    - name: Free up disk space (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/free-disk-space.sh
+
+    - name: Show final disk space (Linux)
+      if: runner.os == 'Linux' && inputs.show-final == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/show-disk-space.sh "Final disk space"

@@ -1,0 +1,128 @@
+name: Setup Rust Environment
+description: Install Rust toolchain with caching for build artifacts
+inputs:
+  components:
+    description: Comma-separated list of Rust components to install
+    required: false
+    default: rustfmt, clippy, llvm-tools-preview, rust-src
+  target:
+    description: Target triple to install
+    required: false
+    default: ""
+  cache-key-prefix:
+    description: Prefix for cache keys
+    required: false
+    default: rust-build
+  toolchain:
+    description: Specific Rust toolchain triple/channel to install (e.g., stable, stable-x86_64-pc-windows-gnu)
+    required: false
+    default: ""
+  use-sccache:
+    description: Enable sccache as the Rust compiler wrapper
+    required: false
+    default: "true"
+  report-stats:
+    description: Report sccache statistics after builds
+    required: false
+    default: "true"
+  shared-core-cache:
+    description: Enable shared cache for FFI core libraries across language bindings
+    required: false
+    default: "false"
+  disable-cache:
+    description: Disable build artifact caching (useful for Windows where fingerprints get corrupted)
+    required: false
+    default: "false"
+  install-llvm-cov:
+    description: Install cargo-llvm-cov for coverage reporting
+    required: false
+    default: "true"
+  macos-dynamic-lookup:
+    description: Add -undefined dynamic_lookup linker flag on macOS (needed for extension builds)
+    required: false
+    default: "true"
+
+outputs:
+  cache-hit:
+    description: Whether the Rust cache was restored
+    value: ${{ steps.cache-rust.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        target: ${{ inputs.target }}
+        cache: false
+
+    - name: Verify Rust installation
+      shell: bash
+      run: ${{ github.action_path }}/scripts/verify-install.sh "${{ inputs.target }}"
+
+    - name: Setup sccache
+      if: inputs.use-sccache == 'true'
+      uses: mozilla-actions/sccache-action@v0.0.9
+      continue-on-error: true
+
+    - name: Configure Rust flags
+      shell: bash
+      run: ${{ github.action_path }}/scripts/configure-flags.sh "${{ inputs.use-sccache }}" "${{ inputs.macos-dynamic-lookup }}"
+
+    - name: Generate Cargo.lock hash
+      id: cargo-hash
+      shell: bash
+      run: ${{ github.action_path }}/scripts/cargo-lock-hash.sh
+
+    - name: Cache Rust build artifacts
+      id: cache-rust
+      if: inputs.disable-cache != 'true'
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target/
+        key: ${{ inputs.shared-core-cache == 'true' && format('shared-core-v3-{0}-{1}', runner.os, steps.cargo-hash.outputs.hash) || format('{0}-v3-{1}-{2}-{3}', inputs.cache-key-prefix, runner.os, inputs.target || 'default', steps.cargo-hash.outputs.hash) }}
+        restore-keys: |
+          ${{ inputs.shared-core-cache == 'true' && format('shared-core-v3-{0}-', runner.os) || format('{0}-v3-{1}-{2}-', inputs.cache-key-prefix, runner.os, inputs.target || 'default') }}
+
+    - name: Cache cargo-llvm-cov
+      if: inputs.install-llvm-cov == 'true'
+      uses: actions/cache@v5
+      with:
+        path: ~/.cargo/bin/cargo-llvm-cov
+        key: cargo-llvm-cov-v5-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+        restore-keys: |
+          cargo-llvm-cov-v5-${{ runner.os }}-
+
+    - name: Validate sccache installation
+      if: inputs.use-sccache == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/validate-sccache.sh
+
+    - name: Ensure sccache is on PATH
+      if: inputs.use-sccache == 'true' && env.SCCACHE_PATH != ''
+      shell: bash
+      run: ${{ github.action_path }}/scripts/ensure-sccache-path.sh
+
+    - name: Add Rust target
+      if: inputs.target != ''
+      shell: bash
+      run: ${{ github.action_path }}/scripts/add-target.sh "${{ inputs.target }}"
+
+    - name: Clean stale fingerprints
+      shell: bash
+      run: ${{ github.action_path }}/scripts/cleanup-fingerprints.sh
+
+    - name: Install cargo-llvm-cov if not cached
+      if: inputs.install-llvm-cov == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/install-cargo-llvm-cov.sh
+
+    - name: Report sccache statistics
+      if: inputs.use-sccache == 'true' && inputs.report-stats == 'true' && always()
+      shell: bash
+      run: ${{ github.action_path }}/scripts/report-sccache-stats.sh
