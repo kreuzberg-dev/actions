@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-packages_dir="${INPUT_PACKAGES_DIR:?INPUT_PACKAGES_DIR is required}"
+packages_dir="${INPUT_PACKAGES_DIR:-}"
+package_dir="${INPUT_PACKAGE_DIR:-}"
 npm_tag="${INPUT_NPM_TAG:-latest}"
 access="${INPUT_ACCESS:-public}"
 provenance="${INPUT_PROVENANCE:-true}"
 dry_run="${INPUT_DRY_RUN:-false}"
 
-if [[ ! -d "$packages_dir" ]]; then
-  echo "Error: packages directory not found: $packages_dir" >&2
+# Validate inputs: exactly one of packages-dir or package-dir must be set
+if [[ -n "$packages_dir" && -n "$package_dir" ]]; then
+  echo "Error: packages-dir and package-dir are mutually exclusive" >&2
+  exit 1
+fi
+
+if [[ -z "$packages_dir" && -z "$package_dir" ]]; then
+  echo "Error: either packages-dir or package-dir must be provided" >&2
   exit 1
 fi
 
@@ -18,6 +25,41 @@ if [[ "$provenance" == "true" ]]; then
 fi
 if [[ "$dry_run" == "true" ]]; then
   publish_flags+=(--dry-run)
+fi
+
+# --- Mode 1: Publish from a package directory directly ---
+
+if [[ -n "$package_dir" ]]; then
+  if [[ ! -d "$package_dir" ]]; then
+    echo "Error: package directory not found: $package_dir" >&2
+    exit 1
+  fi
+
+  echo "Publishing from directory: $package_dir"
+
+  set +e
+  output=$(npm publish "$package_dir" "${publish_flags[@]}" 2>&1)
+  exit_code=$?
+  set -e
+
+  if [[ $exit_code -eq 0 ]]; then
+    echo "Published successfully"
+  elif echo "$output" | grep -qi "previously published\|cannot publish over\|already exists"; then
+    echo "Package already published, skipping"
+  else
+    echo "Error publishing:" >&2
+    echo "$output" >&2
+    exit 1
+  fi
+
+  exit 0
+fi
+
+# --- Mode 2: Publish .tgz files from a directory ---
+
+if [[ ! -d "$packages_dir" ]]; then
+  echo "Error: packages directory not found: $packages_dir" >&2
+  exit 1
 fi
 
 failed=0

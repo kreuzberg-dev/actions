@@ -1,0 +1,54 @@
+name: Publish to Homebrew
+description: >
+  Update a Homebrew formula in a tap repository with bottle hashes
+  from a GitHub release. Credentials for pushing to the tap repo
+  must be pre-configured by the calling workflow.
+
+inputs:
+  bottles-dir:
+    description: "Directory containing .bottle.tar.gz files"
+    required: true
+  formula-name:
+    description: "Name of the Homebrew formula (e.g., 'kreuzberg')"
+    required: true
+  tap-repo:
+    description: "GitHub tap repository (e.g., 'kreuzberg-dev/homebrew-tap')"
+    required: true
+  tag:
+    description: "Git tag for the release (e.g., 'v4.4.5')"
+    required: true
+  version:
+    description: "Semantic version (e.g., '4.4.5')"
+    required: true
+  github-repo:
+    description: "Source repository for tarball URL (e.g., 'kreuzberg-dev/kreuzberg')"
+    required: true
+  bot-name:
+    description: "Git author name for tap commit"
+    required: false
+    default: "kreuzberg-bot"
+  bot-email:
+    description: "Git author email for tap commit"
+    required: false
+    default: "bot@kreuzberg.dev"
+  dry-run:
+    description: "Perform a dry run without pushing to the tap repo"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Update Homebrew formula
+      shell: bash
+      env:
+        INPUT_BOTTLES_DIR: ${{ inputs.bottles-dir }}
+        INPUT_FORMULA_NAME: ${{ inputs.formula-name }}
+        INPUT_TAP_REPO: ${{ inputs.tap-repo }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_GITHUB_REPO: ${{ inputs.github-repo }}
+        INPUT_BOT_NAME: ${{ inputs.bot-name }}
+        INPUT_BOT_EMAIL: ${{ inputs.bot-email }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: ${{ github.action_path }}/scripts/publish.sh

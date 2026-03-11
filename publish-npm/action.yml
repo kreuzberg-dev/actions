@@ -1,12 +1,19 @@
 name: Publish npm Packages
 description: >
-  Publish npm packages (.tgz files) with dist-tag support.
+  Publish npm packages with dist-tag support.
+  Supports two modes: .tgz files from a directory (packages-dir)
+  or direct publish from a package directory (package-dir).
   Handles already-published versions idempotently.
 
 inputs:
   packages-dir:
-    description: "Directory containing .tgz package files"
-    required: true
+    description: "Directory containing .tgz package files (mutually exclusive with package-dir)"
+    required: false
+    default: ""
+  package-dir:
+    description: "Package directory to publish from directly via npm publish (mutually exclusive with packages-dir)"
+    required: false
+    default: ""
   npm-tag:
     description: "npm dist-tag to apply (e.g., latest, next, beta)"
     required: false
@@ -32,6 +39,7 @@ runs:
       env:
         NODE_AUTH_TOKEN: ${{ env.NODE_AUTH_TOKEN }}
         INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
+        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
         INPUT_NPM_TAG: ${{ inputs.npm-tag }}
         INPUT_ACCESS: ${{ inputs.access }}
         INPUT_PROVENANCE: ${{ inputs.provenance }}
