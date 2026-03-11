@@ -1,0 +1,53 @@
+name: Install WASI SDK
+description: |
+  Install WASI SDK for cross-compiling C/C++ libraries to WebAssembly.
+  Fixes compiler env vars so host-native builds are not broken.
+inputs:
+  version:
+    description: WASI SDK version to install
+    required: false
+    default: "25"
+runs:
+  using: composite
+  steps:
+    - name: Ensure python is available
+      shell: bash
+      run: |
+        if ! command -v python &>/dev/null && command -v python3 &>/dev/null; then
+          sudo ln -sf "$(command -v python3)" /usr/local/bin/python
+        fi
+
+    - name: Install WASI SDK
+      uses: bytecodealliance/setup-wasi-sdk-action@dcd040abc428fe35253676ef0e6379fba9bf8f9f # main
+      with:
+        version: ${{ inputs.version }}
+        github-token: ${{ github.token }}
+
+    - name: Fix WASI SDK compiler env vars
+      shell: bash
+      run: |
+        # The setup-wasi-sdk-action sets CC/CXX/AR globally to the WASI SDK
+        # compilers. This breaks host-native C compilation because the WASI
+        # sysroot lacks host headers (stdlib.h, stdio.h).
+        #
+        # Fix: move the WASI compilers to target-specific env vars that
+        # cc-rs picks up only when building for wasm32-unknown-unknown,
+        # and unset the global CC/CXX/AR so host builds use the system compiler.
+        if [ -n "${CC:-}" ]; then
+          echo "CC_wasm32_unknown_unknown=${CC}" >> "$GITHUB_ENV"
+        fi
+        if [ -n "${CXX:-}" ]; then
+          echo "CXX_wasm32_unknown_unknown=${CXX}" >> "$GITHUB_ENV"
+        fi
+        if [ -n "${AR:-}" ]; then
+          echo "AR_wasm32_unknown_unknown=${AR}" >> "$GITHUB_ENV"
+        fi
+        echo "CC=" >> "$GITHUB_ENV"
+        echo "CXX=" >> "$GITHUB_ENV"
+        echo "AR=" >> "$GITHUB_ENV"
+
+    - name: Verify WASI SDK
+      shell: bash
+      run: |
+        echo "WASI SDK installed at: $WASI_SDK_PATH"
+        ls "$WASI_SDK_PATH" || true

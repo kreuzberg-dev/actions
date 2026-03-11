@@ -1,0 +1,54 @@
+name: Restore Cargo Cache
+description: Restore Cargo build artifacts cache for specific build configurations
+inputs:
+  shared-key:
+    description: Shared cache key identifier
+    required: true
+  prefix:
+    description: Cache key prefix
+    required: false
+    default: "cargo"
+outputs:
+  cache-hit:
+    description: Whether the cache was restored
+    value: ${{ steps.cache.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Generate Cargo.lock hash
+      id: cargo-hash
+      shell: bash
+      run: |
+        if [ -f Cargo.lock ]; then
+          if command -v sha256sum &>/dev/null; then
+            hash=$(sha256sum Cargo.lock | cut -d' ' -f1 | head -c 16)
+          else
+            hash=$(shasum -a 256 Cargo.lock | cut -d' ' -f1 | head -c 16)
+          fi
+        else
+          hash="no-lock"
+        fi
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Cargo cache
+      id: cache
+      uses: actions/cache/restore@v5
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target/
+        key: ${{ inputs.prefix }}-${{ inputs.shared-key }}-${{ runner.os }}-${{ steps.cargo-hash.outputs.hash }}
+        restore-keys: |
+          ${{ inputs.prefix }}-${{ inputs.shared-key }}-${{ runner.os }}-
+          ${{ inputs.prefix }}-${{ inputs.shared-key }}-
+
+    - name: Report cache status
+      shell: bash
+      run: |
+        if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+          echo "::notice::Cargo cache restored successfully"
+        else
+          echo "::notice::Cargo cache miss, will build from scratch"
+        fi

@@ -1,0 +1,187 @@
+name: Build and Cache Language Binding
+description: >
+  Build language-specific bindings with intelligent caching.
+  Computes cache keys from source hashes, restores from cache if available,
+  builds if needed, validates artifacts, and saves to cache.
+
+inputs:
+  binding-name:
+    description: "Language binding name (e.g., python, ruby, go, java, csharp, php, node, wasm)"
+    required: true
+  platform:
+    description: "Platform identifier (e.g., linux-x86_64, macos-arm64, windows-x86_64)"
+    required: true
+  build-command:
+    description: "Command to build the binding (e.g., task python:build:ci, cargo build --release)"
+    required: true
+  cache-paths:
+    description: "Newline-separated list of paths to cache"
+    required: true
+  cache-version:
+    description: "Manual cache version override"
+    required: false
+    default: "v1"
+  rust-hash:
+    description: "Rust FFI source hash to include in cache key"
+    required: true
+  binding-files:
+    description: "Glob patterns for binding-specific source files (newline-separated)"
+    required: true
+  dep-files:
+    description: "Dependency lock files to hash (newline-separated)"
+    required: true
+  enable-crossplatform-cache:
+    description: "Enable cross-OS caching"
+    required: false
+    default: "false"
+  validate-artifacts:
+    description: "Enable artifact validation after cache restore or build"
+    required: false
+    default: "true"
+
+outputs:
+  cache-hit:
+    description: "Whether the cache was restored (exact match)"
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+  cache-key:
+    description: "The full cache key that was used"
+    value: ${{ steps.compute-keys.outputs.cache-key }}
+  binding-hash:
+    description: "Hash of binding-specific source files"
+    value: ${{ steps.compute-hashes.outputs.binding-hash }}
+  deps-hash:
+    description: "Hash of dependency lock files"
+    value: ${{ steps.compute-hashes.outputs.deps-hash }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute cache hashes
+      id: compute-hashes
+      shell: bash
+      run: |
+        set -euo pipefail
+        HASH_SCRIPT="${{ github.action_path }}/scripts/compute-hash.sh"
+
+        BINDING_HASH=$("$HASH_SCRIPT" ${{ inputs.binding-files }} || echo "unknown")
+        if [[ "$BINDING_HASH" == "unknown" ]]; then
+          BINDING_HASH="nofiles"
+        fi
+        echo "binding-hash=$BINDING_HASH" >> "$GITHUB_OUTPUT"
+
+        DEPS_HASH=$("$HASH_SCRIPT" --files ${{ inputs.dep-files }} || echo "unknown")
+        if [[ "$DEPS_HASH" == "unknown" ]]; then
+          DEPS_HASH="nodeps"
+        fi
+        echo "deps-hash=$DEPS_HASH" >> "$GITHUB_OUTPUT"
+
+    - name: Compute cache keys
+      id: compute-keys
+      shell: bash
+      run: |
+        set -euo pipefail
+        CACHE_KEY="${{ inputs.cache-version }}-${{ inputs.binding-name }}-${{ inputs.platform }}-rust-${{ inputs.rust-hash }}-binding-${{ steps.compute-hashes.outputs.binding-hash }}-deps-${{ steps.compute-hashes.outputs.deps-hash }}"
+        echo "cache-key=$CACHE_KEY" >> "$GITHUB_OUTPUT"
+
+        RESTORE_KEY_1="${{ inputs.cache-version }}-${{ inputs.binding-name }}-${{ inputs.platform }}-rust-${{ inputs.rust-hash }}-"
+        RESTORE_KEY_2="${{ inputs.cache-version }}-${{ inputs.binding-name }}-${{ inputs.platform }}-"
+
+        echo "fallback-keys<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$RESTORE_KEY_1" >> "$GITHUB_OUTPUT"
+        echo "$RESTORE_KEY_2" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+
+    - name: Restore binding from cache
+      id: restore-cache
+      uses: kreuzberg-dev/actions/cache-binding-artifact@main
+      with:
+        binding-name: ${{ inputs.binding-name }}
+        cache-key: ${{ steps.compute-keys.outputs.cache-key }}
+        cache-restore-keys: ${{ steps.compute-keys.outputs.fallback-keys }}
+        cache-paths: ${{ inputs.cache-paths }}
+        operation: restore
+        enable-crossplatform-cache: ${{ inputs.enable-crossplatform-cache }}
+
+    - name: Check if cache hit
+      id: cache-check
+      shell: bash
+      run: |
+        if [[ "${{ steps.restore-cache.outputs.cache-hit }}" == "true" ]]; then
+          echo "CACHE_HIT=true" >> "$GITHUB_ENV"
+          echo "Cache HIT - using cached artifacts"
+        else
+          echo "CACHE_HIT=false" >> "$GITHUB_ENV"
+          echo "Cache MISS - will build binding"
+        fi
+
+    - name: Validate restored artifacts
+      id: validate
+      if: steps.restore-cache.outputs.cache-hit == 'true' && inputs.validate-artifacts == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate-cache.sh"
+        CACHE_PATHS="${{ inputs.cache-paths }}"
+
+        declare -a ARTIFACT_PATHS
+        while IFS= read -r path; do
+          if [[ -n "$path" ]]; then
+            ARTIFACT_PATHS+=("$path")
+          fi
+        done <<< "$CACHE_PATHS"
+
+        if "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"; then
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "validated=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Restore source files after partial cache restore
+      if: env.CACHE_HIT == 'false'
+      shell: bash
+      run: |
+        set -euo pipefail
+        CACHE_PATHS="${{ inputs.cache-paths }}"
+        while IFS= read -r path; do
+          if [[ -n "$path" ]]; then
+            clean_path="${path%/}"
+            if [[ -d "$clean_path" ]]; then
+              git checkout HEAD -- "$clean_path" 2>/dev/null || echo "(git checkout skipped for $clean_path)"
+            fi
+          fi
+        done <<< "$CACHE_PATHS"
+
+    - name: Build binding
+      if: env.CACHE_HIT == 'false'
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Building ${{ inputs.binding-name }} binding..."
+        ${{ inputs.build-command }}
+
+    - name: Validate build artifacts
+      if: env.CACHE_HIT == 'false' && inputs.validate-artifacts == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate-cache.sh"
+        CACHE_PATHS="${{ inputs.cache-paths }}"
+
+        declare -a ARTIFACT_PATHS
+        while IFS= read -r path; do
+          if [[ -n "$path" ]]; then
+            ARTIFACT_PATHS+=("$path")
+          fi
+        done <<< "$CACHE_PATHS"
+
+        "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"
+
+    - name: Save binding to cache
+      if: env.CACHE_HIT == 'false'
+      uses: kreuzberg-dev/actions/cache-binding-artifact@main
+      with:
+        binding-name: ${{ inputs.binding-name }}
+        cache-key: ${{ steps.compute-keys.outputs.cache-key }}
+        cache-paths: ${{ inputs.cache-paths }}
+        operation: save
+        enable-crossplatform-cache: ${{ inputs.enable-crossplatform-cache }}

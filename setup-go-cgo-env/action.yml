@@ -1,0 +1,54 @@
+name: Setup Go CGO Environment
+description: >
+  Configure Go cgo compilation and runtime environment for linking against
+  a Rust FFI library. Sets PKG_CONFIG_PATH, library paths, CGO_LDFLAGS
+  with rpath, and CGO_ENABLED.
+
+inputs:
+  ffi-lib-dir:
+    description: Path to Rust FFI library directory (relative to repo root)
+    required: false
+    default: "target/release"
+  ffi-crate-dir:
+    description: Path to FFI crate directory containing pkg-config and headers (relative to repo root)
+    required: false
+    default: "crates/kreuzberg-ffi"
+  ffi-lib-name:
+    description: Name of the FFI library (without lib prefix or extension)
+    required: false
+    default: "kreuzberg_ffi"
+  ffi-header-path:
+    description: Path to FFI header file for verification on Windows (relative to repo root)
+    required: false
+    default: ""
+  enable-rpath:
+    description: Add rpath to CGO_LDFLAGS for runtime library resolution
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go cgo environment (Unix-like)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: >-
+        ${{ github.action_path }}/scripts/unix.sh
+        "${{ inputs.ffi-lib-dir }}"
+        "${{ inputs.enable-rpath }}"
+        "${{ inputs.ffi-crate-dir }}"
+        "${{ inputs.ffi-lib-name }}"
+
+    - name: Setup Go cgo environment (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: >-
+        & "${{ github.action_path }}/scripts/windows.ps1"
+        "${{ inputs.ffi-lib-dir }}"
+        "${{ inputs.ffi-crate-dir }}"
+        "${{ inputs.ffi-lib-name }}"
+        "${{ inputs.ffi-header-path }}"
+
+    - name: Verify Go cgo configuration
+      shell: bash
+      run: ${{ github.action_path }}/scripts/verify.sh "${{ inputs.ffi-lib-dir }}" "${{ inputs.ffi-lib-name }}"

@@ -1,0 +1,38 @@
+name: Cleanup Rust Cache
+description: Remove large build artifacts to reduce cache size before saving
+inputs:
+  large-artifact-patterns:
+    description: Additional glob patterns for large artifacts to remove (newline-separated)
+    required: false
+    default: ""
+  max-lib-size:
+    description: Maximum library file size to keep (find -size format, e.g., +10M)
+    required: false
+    default: "+10M"
+runs:
+  using: composite
+  steps:
+    - name: Cleanup build artifacts
+      shell: bash
+      run: |
+        # Remove additional large artifacts specified by consumer
+        if [ -n "${{ inputs.large-artifact-patterns }}" ]; then
+          echo "${{ inputs.large-artifact-patterns }}" | while IFS= read -r pattern; do
+            if [ -n "$pattern" ]; then
+              rm -rf $pattern 2>/dev/null || true
+              echo "Removed: $pattern"
+            fi
+          done
+        fi
+
+        # Remove large compiled libraries
+        find target -type f -name "*.rlib" -size ${{ inputs.max-lib-size }} -exec rm -f {} \; 2>/dev/null || true
+        find target -type f -name "*.so" -size ${{ inputs.max-lib-size }} -exec rm -f {} \; 2>/dev/null || true
+        find target -type f -name "*.dylib" -size ${{ inputs.max-lib-size }} -exec rm -f {} \; 2>/dev/null || true
+        find target -type f -name "*.dll" -size ${{ inputs.max-lib-size }} -exec rm -f {} \; 2>/dev/null || true
+
+        # Remove incremental compilation cache
+        rm -rf target/*/incremental 2>/dev/null || true
+
+        du -sh target 2>/dev/null || echo "No target directory found"
+        echo "Rust cache cleanup completed"

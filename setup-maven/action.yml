@@ -1,0 +1,32 @@
+name: Setup Maven
+description: Install Maven in a cross-platform way
+inputs:
+  version:
+    description: Maven version to install
+    required: false
+    default: "3.9.11"
+runs:
+  using: composite
+  steps:
+    - name: Setup Maven
+      shell: bash
+      run: |
+        MAVEN_VERSION="${{ inputs.version }}"
+        MAVEN_PRIMARY_URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+        MAVEN_FALLBACK_URL="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+
+        TEMP_DIR="$(pwd)/maven-temp"
+        mkdir -p "$TEMP_DIR"
+
+        if ! curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
+          "$MAVEN_PRIMARY_URL" -o "$TEMP_DIR/maven.tar.gz"; then
+          echo "Primary Maven URL failed, falling back to archive.apache.org"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
+            "$MAVEN_FALLBACK_URL" -o "$TEMP_DIR/maven.tar.gz"
+        fi
+        tar -xzf "$TEMP_DIR/maven.tar.gz" -C "$TEMP_DIR"
+
+        MAVEN_HOME="$TEMP_DIR/apache-maven-${MAVEN_VERSION}"
+        echo "$MAVEN_HOME/bin" >> "$GITHUB_PATH"
+
+        "$MAVEN_HOME/bin/mvn" --version

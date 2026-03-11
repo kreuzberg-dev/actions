@@ -1,0 +1,84 @@
+name: Cache Binding Artifact
+description: Generic cache management for compiled binding artifacts (restore or save)
+inputs:
+  binding-name:
+    description: "Language binding name (e.g., python, ruby, go, java, csharp, php, node, wasm, ffi)"
+    required: true
+  cache-key:
+    description: "Full cache key for this artifact"
+    required: true
+  cache-restore-keys:
+    description: "Fallback restore keys (one per line)"
+    required: false
+    default: ""
+  cache-paths:
+    description: "Paths to cache (one per line)"
+    required: true
+  operation:
+    description: "Operation to perform: restore or save"
+    required: true
+  enable-crossplatform-cache:
+    description: "Enable cross-OS caching"
+    required: false
+    default: "false"
+outputs:
+  cache-hit:
+    description: "Whether the cache was restored (exact match)"
+    value: ${{ steps.cache-restore.outputs.cache-hit }}
+  cache-matched-key:
+    description: "The cache key that was matched"
+    value: ${{ steps.cache-restore.outputs.cache-matched-key || steps.cache-save.outputs.cache-key }}
+  cache-primary-key:
+    description: "The primary cache key used"
+    value: ${{ inputs.cache-key }}
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [[ "${{ inputs.operation }}" != "restore" && "${{ inputs.operation }}" != "save" ]]; then
+          echo "Error: operation must be 'restore' or 'save'"
+          exit 1
+        fi
+        echo "Binding: ${{ inputs.binding-name }}, Operation: ${{ inputs.operation }}"
+
+    - name: Restore cache
+      id: cache-restore
+      if: inputs.operation == 'restore'
+      uses: actions/cache/restore@v5
+      with:
+        key: ${{ inputs.cache-key }}
+        restore-keys: ${{ inputs.cache-restore-keys }}
+        path: ${{ inputs.cache-paths }}
+        enableCrossOsArchive: ${{ inputs.enable-crossplatform-cache }}
+        fail-on-cache-miss: false
+        lookup-only: false
+
+    - name: Report cache restore result
+      if: inputs.operation == 'restore'
+      shell: bash
+      run: |
+        if [[ "${{ steps.cache-restore.outputs.cache-hit }}" == "true" ]]; then
+          echo "Cache HIT (exact match) for ${{ inputs.binding-name }}"
+        elif [[ -n "${{ steps.cache-restore.outputs.cache-matched-key }}" ]]; then
+          echo "Cache PARTIAL HIT for ${{ inputs.binding-name }}"
+          echo "  Matched key: ${{ steps.cache-restore.outputs.cache-matched-key }}"
+        else
+          echo "Cache MISS for ${{ inputs.binding-name }}"
+        fi
+
+    - name: Save cache
+      id: cache-save
+      if: inputs.operation == 'save'
+      uses: actions/cache/save@v5
+      with:
+        key: ${{ inputs.cache-key }}
+        path: ${{ inputs.cache-paths }}
+        enableCrossOsArchive: ${{ inputs.enable-crossplatform-cache }}
+
+    - name: Report cache save result
+      if: inputs.operation == 'save'
+      shell: bash
+      run: |
+        echo "Saved ${{ inputs.binding-name }} to cache: ${{ inputs.cache-key }}"
