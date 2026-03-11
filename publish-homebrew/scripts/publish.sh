@@ -24,6 +24,14 @@ echo "Tag: $tag"
 echo "Version: $version"
 echo "Tap: $tap_repo"
 
+# --- Quick idempotency check ---
+
+formula_url="https://raw.githubusercontent.com/${tap_repo}/main/Formula/${formula_name}.rb"
+if curl -sf "$formula_url" 2>/dev/null | grep -q "archive/${tag}.tar.gz"; then
+  echo "Formula already references tag ${tag}, skipping update"
+  exit 0
+fi
+
 # --- Utility functions ---
 
 validate_sha256() {

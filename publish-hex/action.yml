@@ -46,8 +46,23 @@ runs:
         if [[ "$REPLACE" == "true" ]]; then
           PUBLISH_FLAGS="${PUBLISH_FLAGS} --replace"
         fi
+        set +e
         # shellcheck disable=SC2086
-        mix hex.publish $PUBLISH_FLAGS
+        output=$(mix hex.publish $PUBLISH_FLAGS 2>&1)
+        exit_code=$?
+        set -e
+
+        echo "$output"
+
+        if [[ $exit_code -eq 0 ]]; then
+          echo "Published successfully"
+        elif echo "$output" | grep -qi "already published\|version already exists\|already been published"; then
+          echo "Package already published, skipping"
+        else
+          echo "Error publishing:" >&2
+          echo "$output" >&2
+          exit 1
+        fi
 
     - name: Dry run
       if: inputs.dry-run == 'true'
