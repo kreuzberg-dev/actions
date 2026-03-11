@@ -1,0 +1,37 @@
+name: Wait for Package Indexing
+description: >
+  Poll a package registry until a specific version becomes available.
+  Supports npm, pypi, cratesio, maven, and rubygems registries.
+  Uses exponential backoff with configurable max attempts.
+
+inputs:
+  registry:
+    description: "Registry to poll (npm, pypi, cratesio, maven, rubygems)"
+    required: true
+  package:
+    description: "Package name (e.g., @scope/pkg for npm, crate-name for crates.io)"
+    required: true
+  version:
+    description: "Semantic version to wait for (e.g., 1.2.3)"
+    required: true
+  max-attempts:
+    description: "Maximum number of polling attempts"
+    required: false
+    default: "10"
+  maven-group-id:
+    description: "Maven group ID (required for maven registry)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for package indexing
+      shell: bash
+      env:
+        INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_PACKAGE: ${{ inputs.package }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        INPUT_MAVEN_GROUP_ID: ${{ inputs.maven-group-id }}
+      run: ${{ github.action_path }}/scripts/wait.sh

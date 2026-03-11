@@ -1,0 +1,32 @@
+name: Publish to NuGet
+description: >
+  Publish .NET NuGet packages with skip-duplicate support.
+
+inputs:
+  packages-dir:
+    description: "Directory containing .nupkg files"
+    required: true
+  source:
+    description: "NuGet source URL"
+    required: false
+    default: "https://api.nuget.org/v3/index.json"
+  dry-run:
+    description: "Perform a dry run without actually publishing"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure .NET SDK
+      shell: bash
+      run: ${{ github.action_path }}/scripts/ensure-dotnet.sh
+
+    - name: Publish NuGet packages
+      shell: bash
+      env:
+        NUGET_API_KEY: ${{ env.NUGET_API_KEY }}
+        INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
+        INPUT_SOURCE: ${{ inputs.source }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: ${{ github.action_path }}/scripts/publish.sh

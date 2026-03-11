@@ -1,0 +1,39 @@
+name: Publish npm Packages
+description: >
+  Publish npm packages (.tgz files) with dist-tag support.
+  Handles already-published versions idempotently.
+
+inputs:
+  packages-dir:
+    description: "Directory containing .tgz package files"
+    required: true
+  npm-tag:
+    description: "npm dist-tag to apply (e.g., latest, next, beta)"
+    required: false
+    default: "latest"
+  access:
+    description: "Package access level (public or restricted)"
+    required: false
+    default: "public"
+  provenance:
+    description: "Enable npm provenance attestation"
+    required: false
+    default: "true"
+  dry-run:
+    description: "Perform a dry run without actually publishing"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Publish npm packages
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ env.NODE_AUTH_TOKEN }}
+        INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
+        INPUT_NPM_TAG: ${{ inputs.npm-tag }}
+        INPUT_ACCESS: ${{ inputs.access }}
+        INPUT_PROVENANCE: ${{ inputs.provenance }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: ${{ github.action_path }}/scripts/publish.sh

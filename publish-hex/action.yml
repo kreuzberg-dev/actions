@@ -1,0 +1,60 @@
+name: Publish to Hex.pm
+description: >
+  Publish Elixir packages to Hex.pm using mix hex.publish.
+
+inputs:
+  package-dir:
+    description: "Directory containing the Elixir project"
+    required: false
+    default: "."
+  replace:
+    description: "Allow replacing an existing version"
+    required: false
+    default: "true"
+  dry-run:
+    description: "Perform a dry run without actually publishing"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify Hex.pm availability
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        HEX_API_KEY: ${{ env.HEX_API_KEY }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        if [[ -z "${HEX_API_KEY:-}" ]]; then
+          echo "Error: HEX_API_KEY environment variable not set" >&2
+          exit 1
+        fi
+        cd "$PACKAGE_DIR"
+        mix local.hex --force
+
+    - name: Publish to Hex.pm
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        HEX_API_KEY: ${{ env.HEX_API_KEY }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        REPLACE: ${{ inputs.replace }}
+      run: |
+        cd "$PACKAGE_DIR"
+        PUBLISH_FLAGS="--yes"
+        if [[ "$REPLACE" == "true" ]]; then
+          PUBLISH_FLAGS="${PUBLISH_FLAGS} --replace"
+        fi
+        # shellcheck disable=SC2086
+        mix hex.publish $PUBLISH_FLAGS
+
+    - name: Dry run
+      if: inputs.dry-run == 'true'
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        cd "$PACKAGE_DIR"
+        echo "[dry-run] Would run: mix hex.publish --yes"
+        mix hex.info 2>/dev/null || echo "  (mix hex.info not available)"

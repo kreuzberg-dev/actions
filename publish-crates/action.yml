@@ -1,0 +1,39 @@
+name: Publish Rust Crates
+description: >
+  Publish one or more Rust crates to crates.io with OIDC authentication.
+  Handles already-published versions idempotently.
+
+inputs:
+  crates:
+    description: "Space-separated list of crate names to publish (in dependency order)"
+    required: true
+  version:
+    description: "Version being published"
+    required: true
+  dry-run:
+    description: "Perform a dry run without actually publishing"
+    required: false
+    default: "false"
+  manifest-path:
+    description: "Path to workspace Cargo.toml (if not in repo root)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Obtain crates.io OIDC token
+      if: inputs.dry-run != 'true'
+      id: oidc
+      uses: rust-lang/crates-io-auth-action@v1
+
+    - name: Publish crates
+      shell: bash
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ inputs.dry-run != 'true' && steps.oidc.outputs.token || '' }}
+        INPUT_CRATES: ${{ inputs.crates }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_MANIFEST_PATH: ${{ inputs.manifest-path }}
+      run: >-
+        ${{ github.action_path }}/scripts/publish.sh
