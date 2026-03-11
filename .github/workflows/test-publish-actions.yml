@@ -1,0 +1,173 @@
+name: Test publish actions (dry-run)
+on:
+  push:
+    paths:
+      - "publish-*/**"
+      - "wait-for-package/**"
+      - ".github/workflows/test-publish-actions.yml"
+  pull_request:
+    paths:
+      - "publish-*/**"
+      - "wait-for-package/**"
+      - ".github/workflows/test-publish-actions.yml"
+
+jobs:
+  test-publish-npm-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Create dummy npm package
+        run: |
+          mkdir -p dist
+          mkdir -p pkg && cd pkg
+          npm init -y
+          npm pack --pack-destination ../dist
+
+      - name: Test publish-npm (dry-run)
+        uses: ./publish-npm
+        with:
+          packages-dir: dist
+          dry-run: "true"
+
+  test-publish-pypi-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create dummy dist directory
+        run: |
+          mkdir -p dist
+          touch dist/test_package-0.0.1.tar.gz
+
+      - name: Test publish-pypi (dry-run)
+        uses: ./publish-pypi
+        with:
+          packages-dir: dist
+          dry-run: "true"
+
+  test-publish-rubygems-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create dummy gem
+        run: |
+          mkdir -p dist
+          cat > /tmp/test.gemspec << 'RUBY'
+          Gem::Specification.new do |s|
+            s.name = "test-gem"
+            s.version = "0.0.1"
+            s.summary = "Test"
+            s.authors = ["Test"]
+          end
+          RUBY
+          gem build /tmp/test.gemspec -o dist/test-gem-0.0.1.gem
+
+      - name: Test publish-rubygems (dry-run)
+        uses: ./publish-rubygems
+        with:
+          gems-dir: dist
+          dry-run: "true"
+
+  test-publish-github-release-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test publish-github-release (dry-run)
+        uses: ./publish-github-release
+        with:
+          tag: v0.0.0-test
+          title: "Test Release"
+          dry-run: "true"
+
+  test-publish-nuget-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create dummy nupkg
+        run: |
+          mkdir -p dist
+          touch dist/TestPackage.0.0.1.nupkg
+
+      - name: Test publish-nuget (dry-run)
+        uses: ./publish-nuget
+        with:
+          packages-dir: dist
+          dry-run: "true"
+
+  test-publish-packagist-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test publish-packagist (dry-run)
+        uses: ./publish-packagist
+        with:
+          packagist-username: test
+          package-name: vendor/package
+          version: "0.0.1"
+          repository-url: "https://github.com/test/repo"
+          dry-run: "true"
+
+  test-publish-crates-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      - name: Create dummy Rust crate
+        run: |
+          cargo init --name test-crate /tmp/test-crate
+          cd /tmp/test-crate
+          # dry-run will validate but not publish
+
+      - name: Test publish-crates (dry-run)
+        uses: ./publish-crates
+        with:
+          crates: test-crate
+          version: "0.0.1"
+          dry-run: "true"
+          manifest-path: /tmp/test-crate/Cargo.toml
+
+  test-wait-for-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Wait for known published package (npm)
+        uses: ./wait-for-package
+        with:
+          registry: npm
+          package: lodash
+          version: "4.17.21"
+          max-attempts: "3"
+
+      - name: Wait for known published package (pypi)
+        uses: ./wait-for-package
+        with:
+          registry: pypi
+          package: requests
+          version: "2.31.0"
+          max-attempts: "3"
+
+      - name: Wait for known published package (cratesio)
+        uses: ./wait-for-package
+        with:
+          registry: cratesio
+          package: serde
+          version: "1.0.200"
+          max-attempts: "3"

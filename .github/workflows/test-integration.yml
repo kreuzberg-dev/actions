@@ -1,0 +1,94 @@
+name: Integration test
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Task
+        uses: ./install-task
+
+      - name: Setup Rust
+        uses: ./setup-rust
+        with:
+          install-llvm-cov: "false"
+
+      - name: Setup Python
+        uses: ./setup-python-env
+        with:
+          python-version: "3.12"
+          install-command: "uv sync || true"
+
+      - name: Setup Node
+        uses: ./setup-node-workspace
+        with:
+          frozen-lockfile: "false"
+
+      - name: Verify all tools available
+        shell: bash
+        run: |
+          echo "=== Tool Versions ==="
+          task --version
+          rustc --version
+          cargo --version
+          python --version
+          uv --version
+          node --version
+          pnpm --version
+          echo "=== All tools verified ==="
+
+      - name: Create minimal pyproject.toml for Python
+        shell: bash
+        run: |
+          cat > pyproject.toml << 'TOML'
+          [project]
+          name = "test-project"
+          version = "0.0.0"
+          requires-python = ">=3.10"
+          TOML
+
+      - name: Create minimal package.json for Node
+        shell: bash
+        run: |
+          cat > package.json << 'JSON'
+          {
+            "name": "test-workspace",
+            "private": true,
+            "packageManager": "pnpm@10.0.0"
+          }
+          JSON
+          cat > pnpm-lock.yaml << 'YAML'
+          lockfileVersion: '9.0'
+          settings:
+            autoInstallPeers: true
+          YAML
+
+  integration-linux-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: ./free-disk-space-linux
+
+      - name: Setup Rust
+        uses: ./setup-rust
+
+      - name: Setup OpenSSL
+        uses: ./setup-openssl
+
+      - name: Verify
+        run: |
+          rustc --version
+          openssl version
+          echo "OPENSSL_DIR=${OPENSSL_DIR:-not set}"

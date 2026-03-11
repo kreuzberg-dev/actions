@@ -1,0 +1,43 @@
+name: Test setup-python-env
+on:
+  push:
+    paths:
+      - "setup-python-env/**"
+      - ".github/workflows/test-setup-python-env.yml"
+  pull_request:
+    paths:
+      - "setup-python-env/**"
+      - ".github/workflows/test-setup-python-env.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create minimal pyproject.toml for test
+        shell: bash
+        run: |
+          cat > pyproject.toml << 'TOML'
+          [project]
+          name = "test-project"
+          version = "0.0.0"
+          requires-python = ">=3.10"
+          TOML
+
+      - name: Setup Python environment
+        uses: ./setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+          install-command: "uv sync || true"
+
+      - name: Verify installation
+        shell: bash
+        run: |
+          python --version
+          uv --version

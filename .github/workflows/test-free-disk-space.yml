@@ -1,0 +1,25 @@
+name: Test free-disk-space-linux
+on:
+  push:
+    paths:
+      - "free-disk-space-linux/**"
+      - ".github/workflows/test-free-disk-space.yml"
+  pull_request:
+    paths:
+      - "free-disk-space-linux/**"
+      - ".github/workflows/test-free-disk-space.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record initial disk space
+        run: df -h /
+
+      - name: Free disk space
+        uses: ./free-disk-space-linux
+
+      - name: Verify disk space freed
+        run: df -h /

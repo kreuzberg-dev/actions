@@ -1,0 +1,29 @@
+name: Test install-task
+on:
+  push:
+    paths:
+      - "install-task/**"
+      - ".github/workflows/test-install-task.yml"
+  pull_request:
+    paths:
+      - "install-task/**"
+      - ".github/workflows/test-install-task.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Task (default version)
+        uses: ./install-task
+
+      - name: Verify installation
+        shell: bash
+        run: |
+          task --version
+          which task || where task

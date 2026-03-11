@@ -1,0 +1,47 @@
+name: Test setup-node-workspace
+on:
+  push:
+    paths:
+      - "setup-node-workspace/**"
+      - ".github/workflows/test-setup-node-workspace.yml"
+  pull_request:
+    paths:
+      - "setup-node-workspace/**"
+      - ".github/workflows/test-setup-node-workspace.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create minimal package.json for test
+        shell: bash
+        run: |
+          cat > package.json << 'JSON'
+          {
+            "name": "test-workspace",
+            "private": true,
+            "packageManager": "pnpm@10.0.0"
+          }
+          JSON
+          cat > pnpm-lock.yaml << 'YAML'
+          lockfileVersion: '9.0'
+          settings:
+            autoInstallPeers: true
+          YAML
+
+      - name: Setup Node workspace
+        uses: ./setup-node-workspace
+        with:
+          frozen-lockfile: "false"
+
+      - name: Verify installation
+        shell: bash
+        run: |
+          node --version
+          pnpm --version

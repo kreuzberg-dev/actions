@@ -1,0 +1,60 @@
+name: Test setup-rust
+on:
+  push:
+    paths:
+      - "setup-rust/**"
+      - ".github/workflows/test-setup-rust.yml"
+  pull_request:
+    paths:
+      - "setup-rust/**"
+      - ".github/workflows/test-setup-rust.yml"
+
+jobs:
+  test-default:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust (defaults)
+        uses: ./setup-rust
+
+      - name: Verify installation
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          rustfmt --version
+          clippy-driver --version
+
+  test-with-sccache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust with sccache
+        uses: ./setup-rust
+        with:
+          use-sccache: "true"
+
+      - name: Verify sccache
+        run: |
+          rustc --version
+          sccache --show-stats
+
+  test-with-target:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust with wasm target
+        uses: ./setup-rust
+        with:
+          target: wasm32-unknown-unknown
+          install-llvm-cov: "false"
+
+      - name: Verify target
+        run: rustup target list --installed | grep wasm32-unknown-unknown

@@ -1,0 +1,29 @@
+name: Test setup-openssl
+on:
+  push:
+    paths:
+      - "setup-openssl/**"
+      - ".github/workflows/test-setup-openssl.yml"
+  pull_request:
+    paths:
+      - "setup-openssl/**"
+      - ".github/workflows/test-setup-openssl.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup OpenSSL
+        uses: ./setup-openssl
+
+      - name: Verify OpenSSL environment
+        shell: bash
+        run: |
+          openssl version
+          echo "OPENSSL_DIR=${OPENSSL_DIR:-not set}"
