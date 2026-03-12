@@ -11,9 +11,11 @@ runs:
     - name: Setup Task (Unix)
       if: runner.os != 'Windows'
       shell: bash
-      run: ${{ github.action_path }}/scripts/unix.sh "${{ inputs.version }}"
+      run: |
+        "${{ github.action_path }}/scripts/unix.sh" "${{ inputs.version }}"
 
     - name: Setup Task (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
-      run: ${{ github.action_path }}/scripts/windows.ps1 "${{ inputs.version }}"
+      run: |
+        & '${{ github.action_path }}/scripts/windows.ps1' '${{ inputs.version }}'

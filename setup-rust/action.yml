@@ -59,7 +59,8 @@ runs:
 
     - name: Verify Rust installation
       shell: bash
-      run: ${{ github.action_path }}/scripts/verify-install.sh "${{ inputs.target }}"
+      run: |
+        "${{ github.action_path }}/scripts/verify-install.sh" "${{ inputs.target }}"
 
     - name: Setup sccache
       if: inputs.use-sccache == 'true'
@@ -68,12 +69,13 @@ runs:
 
     - name: Configure Rust flags
       shell: bash
-      run: ${{ github.action_path }}/scripts/configure-flags.sh "${{ inputs.use-sccache }}" "${{ inputs.macos-dynamic-lookup }}"
+      run: |
+        "${{ github.action_path }}/scripts/configure-flags.sh" "${{ inputs.use-sccache }}" "${{ inputs.macos-dynamic-lookup }}"
 
     - name: Generate Cargo.lock hash
       id: cargo-hash
       shell: bash
-      run: ${{ github.action_path }}/scripts/cargo-lock-hash.sh
+      run: "${{ github.action_path }}/scripts/cargo-lock-hash.sh"
 
     - name: Cache Rust build artifacts
       id: cache-rust
@@ -101,28 +103,29 @@ runs:
     - name: Validate sccache installation
       if: inputs.use-sccache == 'true'
       shell: bash
-      run: ${{ github.action_path }}/scripts/validate-sccache.sh
+      run: "${{ github.action_path }}/scripts/validate-sccache.sh"
 
     - name: Ensure sccache is on PATH
       if: inputs.use-sccache == 'true' && env.SCCACHE_PATH != ''
       shell: bash
-      run: ${{ github.action_path }}/scripts/ensure-sccache-path.sh
+      run: "${{ github.action_path }}/scripts/ensure-sccache-path.sh"
 
     - name: Add Rust target
       if: inputs.target != ''
       shell: bash
-      run: ${{ github.action_path }}/scripts/add-target.sh "${{ inputs.target }}"
+      run: |
+        "${{ github.action_path }}/scripts/add-target.sh" "${{ inputs.target }}"
 
     - name: Clean stale fingerprints
       shell: bash
-      run: ${{ github.action_path }}/scripts/cleanup-fingerprints.sh
+      run: "${{ github.action_path }}/scripts/cleanup-fingerprints.sh"
 
     - name: Install cargo-llvm-cov if not cached
       if: inputs.install-llvm-cov == 'true'
       shell: bash
-      run: ${{ github.action_path }}/scripts/install-cargo-llvm-cov.sh
+      run: "${{ github.action_path }}/scripts/install-cargo-llvm-cov.sh"
 
     - name: Report sccache statistics
       if: inputs.use-sccache == 'true' && inputs.report-stats == 'true' && always()
       shell: bash
-      run: ${{ github.action_path }}/scripts/report-sccache-stats.sh
+      run: "${{ github.action_path }}/scripts/report-sccache-stats.sh"

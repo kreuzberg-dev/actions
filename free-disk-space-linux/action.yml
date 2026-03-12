@@ -17,14 +17,16 @@ runs:
     - name: Show initial disk space (Linux)
       if: runner.os == 'Linux' && inputs.show-initial == 'true'
       shell: bash
-      run: ${{ github.action_path }}/scripts/show-disk-space.sh "Initial disk space"
+      run: |
+        "${{ github.action_path }}/scripts/show-disk-space.sh" "Initial disk space"
 
     - name: Free up disk space (Linux)
       if: runner.os == 'Linux'
       shell: bash
-      run: ${{ github.action_path }}/scripts/free-disk-space.sh
+      run: "${{ github.action_path }}/scripts/free-disk-space.sh"
 
     - name: Show final disk space (Linux)
       if: runner.os == 'Linux' && inputs.show-final == 'true'
       shell: bash
-      run: ${{ github.action_path }}/scripts/show-disk-space.sh "Final disk space"
+      run: |
+        "${{ github.action_path }}/scripts/show-disk-space.sh" "Final disk space"

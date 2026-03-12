@@ -59,17 +59,23 @@ runs:
     - name: Compute cache hashes
       id: compute-hashes
       shell: bash
+      env:
+        BINDING_FILES: ${{ inputs.binding-files }}
+        DEP_FILES: ${{ inputs.dep-files }}
       run: |
         set -euo pipefail
         HASH_SCRIPT="${{ github.action_path }}/scripts/compute-hash.sh"
 
-        BINDING_HASH=$("$HASH_SCRIPT" ${{ inputs.binding-files }} || echo "unknown")
+        # Convert newline-separated inputs to space-separated args
+        BINDING_ARGS=$(echo "$BINDING_FILES" | tr '\n' ' ')
+        BINDING_HASH=$("$HASH_SCRIPT" $BINDING_ARGS || echo "unknown")
         if [[ "$BINDING_HASH" == "unknown" ]]; then
           BINDING_HASH="nofiles"
         fi
         echo "binding-hash=$BINDING_HASH" >> "$GITHUB_OUTPUT"
 
-        DEPS_HASH=$("$HASH_SCRIPT" --files ${{ inputs.dep-files }} || echo "unknown")
+        DEP_ARGS=$(echo "$DEP_FILES" | tr '\n' ' ')
+        DEPS_HASH=$("$HASH_SCRIPT" --files $DEP_ARGS || echo "unknown")
         if [[ "$DEPS_HASH" == "unknown" ]]; then
           DEPS_HASH="nodeps"
         fi

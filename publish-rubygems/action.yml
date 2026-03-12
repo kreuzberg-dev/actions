@@ -21,4 +21,4 @@ runs:
         GEM_HOST_API_KEY: ${{ env.GEM_HOST_API_KEY }}
         INPUT_GEMS_DIR: ${{ inputs.gems-dir }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
-      run: ${{ github.action_path }}/scripts/publish.sh
+      run: "${{ github.action_path }}/scripts/publish.sh"
