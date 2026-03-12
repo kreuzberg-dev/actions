@@ -44,4 +44,5 @@ runs:
         INPUT_ACCESS: ${{ inputs.access }}
         INPUT_PROVENANCE: ${{ inputs.provenance }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
-      run: "${{ github.action_path }}/scripts/publish.sh"
+      run: |
+        ${{ github.action_path }}/scripts/publish.sh

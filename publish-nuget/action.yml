@@ -20,7 +20,8 @@ runs:
   steps:
     - name: Ensure .NET SDK
       shell: bash
-      run: "${{ github.action_path }}/scripts/ensure-dotnet.sh"
+      run: |
+        ${{ github.action_path }}/scripts/ensure-dotnet.sh
 
     - name: Publish NuGet packages
       shell: bash
@@ -29,4 +30,5 @@ runs:
         INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
         INPUT_SOURCE: ${{ inputs.source }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
-      run: "${{ github.action_path }}/scripts/publish.sh"
+      run: |
+        ${{ github.action_path }}/scripts/publish.sh

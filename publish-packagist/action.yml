@@ -44,4 +44,5 @@ runs:
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INPUT_POLL_INTERVAL: ${{ inputs.poll-interval }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
-      run: "${{ github.action_path }}/scripts/publish.sh"
+      run: |
+        ${{ github.action_path }}/scripts/publish.sh

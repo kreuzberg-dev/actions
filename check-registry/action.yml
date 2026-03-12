@@ -43,4 +43,5 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
         INPUT_TAP_REPO: ${{ inputs.tap-repo }}
-      run: "${{ github.action_path }}/scripts/check.sh"
+      run: |
+        ${{ github.action_path }}/scripts/check.sh

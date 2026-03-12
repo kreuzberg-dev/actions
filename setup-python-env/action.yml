@@ -29,7 +29,8 @@ runs:
     - name: Compute uv.lock hash
       id: uv-lock-hash
       shell: bash
-      run: "${{ github.action_path }}/scripts/uv-lock-hash.sh"
+      run: |
+        ${{ github.action_path }}/scripts/uv-lock-hash.sh
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -65,4 +66,5 @@ runs:
     - name: Preserve PKG_CONFIG_PATH for OpenSSL
       if: inputs.preserve-pkg-config-path == 'true'
       shell: bash
-      run: "${{ github.action_path }}/scripts/preserve-pkg-config-path.sh"
+      run: |
+        ${{ github.action_path }}/scripts/preserve-pkg-config-path.sh

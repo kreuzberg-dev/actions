@@ -34,4 +34,5 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INPUT_MAVEN_GROUP_ID: ${{ inputs.maven-group-id }}
-      run: "${{ github.action_path }}/scripts/wait.sh"
+      run: |
+        ${{ github.action_path }}/scripts/wait.sh

@@ -51,4 +51,5 @@ runs:
         INPUT_BOT_NAME: ${{ inputs.bot-name }}
         INPUT_BOT_EMAIL: ${{ inputs.bot-email }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
-      run: "${{ github.action_path }}/scripts/publish.sh"
+      run: |
+        ${{ github.action_path }}/scripts/publish.sh

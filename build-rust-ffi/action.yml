@@ -50,7 +50,8 @@ runs:
       env:
         CRATE_NAME: ${{ inputs.crate-name }}
         MANIFEST_PATH: ${{ inputs.manifest-path }}
-      run: "${{ github.action_path }}/scripts/validate-inputs.sh"
+      run: |
+        ${{ github.action_path }}/scripts/validate-inputs.sh
 
     - name: Build FFI library
       id: build
@@ -64,11 +65,13 @@ runs:
         ADDITIONAL_FLAGS: ${{ inputs.additional-flags }}
         MANIFEST_PATH: ${{ inputs.manifest-path }}
         DISABLE_SCCACHE: ${{ inputs.disable-sccache }}
-      run: "${{ github.action_path }}/scripts/build.sh"
+      run: |
+        ${{ github.action_path }}/scripts/build.sh
 
     - name: Verify build artifacts
       shell: bash
       env:
         LIBRARY_PATH: ${{ steps.build.outputs.library-path }}
         TARGET_DIR: ${{ steps.build.outputs.target-dir }}
-      run: "${{ github.action_path }}/scripts/verify.sh"
+      run: |
+        ${{ github.action_path }}/scripts/verify.sh
