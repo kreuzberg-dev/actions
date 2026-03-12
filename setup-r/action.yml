@@ -1,0 +1,52 @@
+name: Setup R Environment
+description: Install R with caching for R package dependencies
+
+inputs:
+  r-version:
+    description: R version to install
+    required: false
+    default: "4.4"
+  install-deps:
+    description: Whether to install R package dependencies
+    required: false
+    default: "true"
+  install-deps-script:
+    description: Path to the R dependency installation script (relative to repo root)
+    required: false
+    default: ""
+  description-file:
+    description: Path to the R DESCRIPTION file for cache key (relative to repo root)
+    required: false
+    default: "packages/r/DESCRIPTION"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup R
+      uses: r-lib/actions/setup-r@v2
+      with:
+        r-version: ${{ inputs.r-version }}
+        use-public-rspm: true
+
+    - name: Install system dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config libcurl4-openssl-dev libxml2-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libtiff-dev libjpeg-dev libwebp-dev
+
+    - name: Cache R library
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.R_LIBS_USER }}
+          ~/.R
+        key: r-lib-${{ runner.os }}-${{ inputs.r-version }}-${{ hashFiles(inputs.description-file) }}
+        restore-keys: |
+          r-lib-${{ runner.os }}-${{ inputs.r-version }}-
+
+    - name: Install R dependencies
+      if: inputs.install-deps == 'true' && inputs.install-deps-script != ''
+      shell: bash
+      run: |
+        "${{ github.workspace }}/${{ inputs.install-deps-script }}"
