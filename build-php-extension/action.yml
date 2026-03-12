@@ -1,0 +1,63 @@
+name: Build PHP Extension
+description: Builds PHP extension using ext-php-rs (Linux and Windows)
+
+inputs:
+  crate-name:
+    description: Cargo crate name for the PHP extension
+    required: true
+  lib-name:
+    description: Name of the built library (without lib prefix or extension)
+    required: true
+  php-version:
+    description: PHP version (only used on Windows for thread safety)
+    required: false
+    default: ""
+  php-ts:
+    description: Thread safety mode - ts or nts (Windows only)
+    required: false
+    default: ""
+
+outputs:
+  extension-path:
+    description: Path to the built extension file (.so on Linux, .dll on Windows)
+    value: ${{ steps.build-unix.outputs.extension-path || steps.build-windows.outputs.dll }}
+
+runs:
+  using: composite
+  steps:
+    # --- Linux/macOS ---
+    - name: Build PHP extension (Linux/macOS)
+      if: runner.os != 'Windows'
+      id: build-unix
+      shell: bash
+      run: |
+        set -euo pipefail
+        cargo build --release -p "${{ inputs.crate-name }}"
+        echo "extension-path=$GITHUB_WORKSPACE/target/release/lib${{ inputs.lib-name }}.so" >> "$GITHUB_OUTPUT"
+
+    # --- Windows ---
+    - name: Install LLVM for libclang (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install llvm --version=18.1.8 --allow-downgrade -y
+        $llvmPath = "C:\Program Files\LLVM\bin"
+        if (-not (Test-Path (Join-Path $llvmPath "libclang.dll"))) {
+          throw "libclang.dll not found in LLVM installation"
+        }
+        "LIBCLANG_PATH=$llvmPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        "PATH=$llvmPath;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Build PHP extension (Windows)
+      if: runner.os == 'Windows'
+      id: build-windows
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        cargo build --package "${{ inputs.crate-name }}" --release
+        $dllPath = Join-Path $env:GITHUB_WORKSPACE "target\release\${{ inputs.lib-name }}.dll"
+        if (-not (Test-Path $dllPath)) {
+          throw "Built DLL not found at $dllPath"
+        }
+        Write-Host "Built DLL at: $dllPath"
+        "dll=$dllPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append

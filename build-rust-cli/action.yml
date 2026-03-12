@@ -1,0 +1,46 @@
+name: Build Rust CLI Binary
+description: Builds a standalone Rust CLI binary
+
+inputs:
+  package-name:
+    description: Cargo package name to build
+    required: true
+  binary-name:
+    description: Name of the output binary (without extension)
+    required: true
+  target:
+    description: Rust target triple (optional, for cross-compilation)
+    required: false
+    default: ""
+  extra-cargo-args:
+    description: Additional arguments to pass to cargo build
+    required: false
+    default: ""
+
+outputs:
+  binary-path:
+    description: Path to the built CLI binary
+    value: ${{ steps.build.outputs.binary-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build CLI binary
+      id: build
+      shell: bash
+      run: |
+        set -euo pipefail
+        TARGET_FLAG=""
+        TARGET_DIR="target/release"
+        if [[ -n "${{ inputs.target }}" ]]; then
+          TARGET_FLAG="--target ${{ inputs.target }}"
+          TARGET_DIR="target/${{ inputs.target }}/release"
+        fi
+
+        cargo build --release --package "${{ inputs.package-name }}" $TARGET_FLAG ${{ inputs.extra-cargo-args }}
+
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "binary-path=$GITHUB_WORKSPACE/${TARGET_DIR}/${{ inputs.binary-name }}.exe" >> "$GITHUB_OUTPUT"
+        else
+          echo "binary-path=$GITHUB_WORKSPACE/${TARGET_DIR}/${{ inputs.binary-name }}" >> "$GITHUB_OUTPUT"
+        fi

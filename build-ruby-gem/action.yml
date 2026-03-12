@@ -1,0 +1,75 @@
+name: Build Ruby Gem
+description: Builds Ruby gem with native Rust extension (Unix and Windows)
+
+inputs:
+  package-dir:
+    description: Path to the Ruby package directory (relative to repo root)
+    required: false
+    default: "packages/ruby"
+
+runs:
+  using: composite
+  steps:
+    # --- Unix (Linux/macOS) ---
+    - name: Set LD_LIBRARY_PATH (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: echo "LD_LIBRARY_PATH=$(ruby -rrbconfig -e'puts RbConfig::CONFIG["libdir"]')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> $GITHUB_ENV
+
+    - name: Install Ruby gems (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      run: bundle install
+
+    - name: Compile Ruby extension (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        RB_SYS_CARGO_PROFILE: release
+      run: bundle exec rake compile
+
+    # --- Windows ---
+    - name: Install MSYS2 toolchain
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: ridk exec pacman -S --needed --noconfirm base-devel mingw-w64-ucrt-x86_64-toolchain
+
+    - name: Export RUBY path (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $rubyPath = ridk exec ruby -e "print RbConfig.ruby"
+        Add-Content $env:GITHUB_ENV "RUBY=$rubyPath"
+
+    - name: Install Rust GNU toolchain (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: rustup toolchain install stable-gnu --profile minimal --no-self-update
+
+    - name: Configure bindgen sysroot (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-gnu --sysroot=${RI_DEVKIT//\\/\/}$MSYSTEM_PREFIX" >> $GITHUB_ENV
+
+    - name: Install Ruby gems (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        $unixPath = ridk exec bash -lc "cygpath -au '$env:GITHUB_WORKSPACE/$env:PACKAGE_DIR'"
+        ridk exec bash -lc "cd $unixPath && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle install"
+
+    - name: Compile Ruby extension (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      working-directory: ${{ inputs.package-dir }}
+      env:
+        RB_SYS_CARGO_PROFILE: release
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        $unixPath = ridk exec bash -lc "cygpath -au '$env:GITHUB_WORKSPACE/$env:PACKAGE_DIR'"
+        ridk exec bash -lc "cd $unixPath && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle exec rake compile"

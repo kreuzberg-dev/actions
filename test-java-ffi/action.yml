@@ -1,0 +1,54 @@
+name: Test Java Panama FFI Bindings
+description: Setup Java, build native library, and run Java tests
+
+inputs:
+  ffi-crate-name:
+    description: Cargo crate name for the FFI library
+    required: true
+  ffi-lib-name:
+    description: Library name (without lib prefix or extension)
+    required: true
+  java-package-dir:
+    description: Path to the Java package directory (relative to repo root)
+    required: false
+    default: "packages/java"
+  java-version:
+    description: Java version to use
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+        cache: maven
+
+    - name: Build native library
+      shell: bash
+      run: |
+        set -euo pipefail
+        cargo build --release --package "${{ inputs.ffi-crate-name }}"
+        mkdir -p "${{ inputs.java-package-dir }}/src/main/resources"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          cp "target/release/${{ inputs.ffi-lib-name }}.dll" "${{ inputs.java-package-dir }}/src/main/resources/"
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          cp "target/release/lib${{ inputs.ffi-lib-name }}.dylib" "${{ inputs.java-package-dir }}/src/main/resources/"
+        else
+          cp "target/release/lib${{ inputs.ffi-lib-name }}.so" "${{ inputs.java-package-dir }}/src/main/resources/"
+        fi
+
+    - name: Run Java tests
+      shell: bash
+      working-directory: ${{ inputs.java-package-dir }}
+      run: |
+        set -euo pipefail
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          export PATH="${GITHUB_WORKSPACE}/${{ inputs.java-package-dir }}/src/main/resources:${PATH}"
+        fi
+        MAVEN_OPTS="${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow" \
+          mvn -B -f pom.xml -Dgpg.skip=true clean test
+        echo "Java Panama FFI bindings test completed"

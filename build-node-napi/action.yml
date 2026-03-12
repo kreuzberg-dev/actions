@@ -1,0 +1,40 @@
+name: Build Node.js NAPI-RS Bindings
+description: Builds NAPI-RS Node.js bindings and optionally creates tarball
+
+inputs:
+  crate-dir:
+    description: Path to the NAPI-RS crate directory (relative to repo root)
+    required: true
+  build-command:
+    description: Command to build the bindings
+    required: false
+    default: "pnpm run build"
+  pack-tarball:
+    description: Whether to pack the result as a tarball
+    required: false
+    default: "false"
+
+outputs:
+  tarball:
+    description: Path to the packed tarball (if pack-tarball is true)
+    value: ${{ steps.pack.outputs.tarball }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build NAPI-RS bindings
+      shell: bash
+      working-directory: ${{ inputs.crate-dir }}
+      run: ${{ inputs.build-command }}
+
+    - name: Pack Node tarball
+      if: inputs.pack-tarball == 'true'
+      id: pack
+      shell: bash
+      run: |
+        set -euo pipefail
+        pushd "${{ inputs.crate-dir }}" >/dev/null
+        NODE_TGZ=$(npm pack | tail -1)
+        mv "$NODE_TGZ" "$GITHUB_WORKSPACE/$NODE_TGZ"
+        popd >/dev/null
+        echo "tarball=$GITHUB_WORKSPACE/$NODE_TGZ" >> "$GITHUB_OUTPUT"

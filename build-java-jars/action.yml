@@ -1,0 +1,110 @@
+name: Build Java JARs with Native Libraries
+description: Build platform-specific Java JARs containing native FFI libraries
+
+inputs:
+  ffi-crate-name:
+    description: Cargo crate name for the FFI library
+    required: true
+  ffi-lib-name:
+    description: Library name (without lib prefix or extension)
+    required: true
+  java-package-dir:
+    description: Path to the Java package directory (relative to repo root)
+    required: false
+    default: "packages/java"
+  java-version:
+    description: Java version to use
+    required: false
+    default: "24"
+  platform:
+    description: Platform identifier (linux, macos, windows)
+    required: true
+  version:
+    description: Version number for the JARs
+    required: true
+  group-id:
+    description: Maven groupId
+    required: true
+  artifact-id:
+    description: Maven artifactId
+    required: true
+
+outputs:
+  jar_path:
+    description: Path to the main JAR file
+    value: ${{ steps.set-outputs.outputs.jar_path }}
+  sources_jar_path:
+    description: Path to the sources JAR file
+    value: ${{ steps.set-outputs.outputs.sources_jar_path }}
+  javadoc_jar_path:
+    description: Path to the javadoc JAR file
+    value: ${{ steps.set-outputs.outputs.javadoc_jar_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+        cache: maven
+
+    - name: Build native FFI library
+      shell: bash
+      run: |
+        set -euo pipefail
+        cargo build --release --package "${{ inputs.ffi-crate-name }}"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          ls -lh "target/release/${{ inputs.ffi-lib-name }}.dll"
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          ls -lh "target/release/lib${{ inputs.ffi-lib-name }}.dylib"
+        else
+          ls -lh "target/release/lib${{ inputs.ffi-lib-name }}.so"
+        fi
+
+    - name: Copy native library to resources
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "${{ inputs.java-package-dir }}/src/main/resources"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          cp "target/release/${{ inputs.ffi-lib-name }}.dll" "${{ inputs.java-package-dir }}/src/main/resources/"
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          cp "target/release/lib${{ inputs.ffi-lib-name }}.dylib" "${{ inputs.java-package-dir }}/src/main/resources/"
+        else
+          cp "target/release/lib${{ inputs.ffi-lib-name }}.so" "${{ inputs.java-package-dir }}/src/main/resources/"
+        fi
+
+    - name: Set version in POM
+      shell: bash
+      working-directory: ${{ inputs.java-package-dir }}
+      run: |
+        MAVEN_OPTS="${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow" \
+          mvn versions:set -DnewVersion="${{ inputs.version }}" -DgenerateBackupPoms=false
+
+    - name: Build and package JARs
+      shell: bash
+      working-directory: ${{ inputs.java-package-dir }}
+      run: |
+        MAVEN_OPTS="${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow" \
+          mvn clean package source:jar-no-fork javadoc:jar -DskipTests -Dgpg.skip=true
+
+    - name: Rename JARs with platform classifier
+      shell: bash
+      working-directory: ${{ inputs.java-package-dir }}/target
+      run: |
+        VERSION="${{ inputs.version }}"
+        PLATFORM="${{ inputs.platform }}"
+        mv "${{ inputs.artifact-id }}-${VERSION}.jar" "${{ inputs.artifact-id }}-${VERSION}-${PLATFORM}.jar"
+
+    - name: Set output paths
+      id: set-outputs
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        PLATFORM="${{ inputs.platform }}"
+        BASE_PATH="${{ inputs.java-package-dir }}/target"
+        echo "jar_path=${BASE_PATH}/${{ inputs.artifact-id }}-${VERSION}-${PLATFORM}.jar" >> "$GITHUB_OUTPUT"
+        echo "sources_jar_path=${BASE_PATH}/${{ inputs.artifact-id }}-${VERSION}-sources.jar" >> "$GITHUB_OUTPUT"
+        echo "javadoc_jar_path=${BASE_PATH}/${{ inputs.artifact-id }}-${VERSION}-javadoc.jar" >> "$GITHUB_OUTPUT"

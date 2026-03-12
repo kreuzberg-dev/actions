@@ -1,0 +1,98 @@
+name: Build Python Wheels
+description: Build Python wheels using cibuildwheel
+
+inputs:
+  python-version:
+    description: Python version to use for cibuildwheel host
+    required: false
+    default: "3.13"
+  package-dir:
+    description: Path to the Python package directory (relative to repo root)
+    required: false
+    default: "packages/python"
+  cibw-build:
+    description: CIBW_BUILD filter
+    required: false
+    default: "cp310-* cp311-* cp312-* cp313-*"
+  cibw-skip:
+    description: CIBW_SKIP filter
+    required: false
+    default: "*-musllinux* *-win32 *-manylinux_i686"
+  cibw-before-build-linux:
+    description: CIBW_BEFORE_BUILD_LINUX command
+    required: false
+    default: "pip install maturin uv && source ~/.cargo/env"
+  cibw-before-build-macos:
+    description: CIBW_BEFORE_BUILD_MACOS command
+    required: false
+    default: "pip install maturin uv && source ~/.cargo/env"
+  cibw-before-build-windows:
+    description: CIBW_BEFORE_BUILD_WINDOWS command
+    required: false
+    default: "pip install maturin uv && set PATH=%USERPROFILE%\\.cargo\\bin;%PATH%"
+  cibw-environment:
+    description: CIBW_ENVIRONMENT (Linux default)
+    required: false
+    default: 'MATURIN_BUILD_ARGS="--compatibility linux"'
+  cibw-environment-windows:
+    description: CIBW_ENVIRONMENT_WINDOWS
+    required: false
+    default: 'MATURIN_BUILD_ARGS=""'
+  cibw-environment-macos:
+    description: CIBW_ENVIRONMENT_MACOS
+    required: false
+    default: 'MATURIN_BUILD_ARGS=""'
+  artifact-name:
+    description: Name for the uploaded artifact
+    required: false
+    default: "wheels-${{ runner.os }}"
+  upload-artifact:
+    description: Whether to upload the wheels as an artifact
+    required: false
+    default: "true"
+
+outputs:
+  artifact-name:
+    description: Name of the uploaded artifact
+    value: ${{ inputs.artifact-name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install cibuildwheel
+      shell: bash
+      run: python -m pip install cibuildwheel==3.2.0
+
+    - name: Build wheels
+      shell: bash
+      run: python -m cibuildwheel --output-dir wheelhouse "${{ inputs.package-dir }}"
+      env:
+        CIBW_BUILD: ${{ inputs.cibw-build }}
+        CIBW_BEFORE_ALL_LINUX: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source ~/.cargo/env
+        CIBW_BEFORE_ALL_MACOS: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source ~/.cargo/env
+        CIBW_BEFORE_ALL_WINDOWS: >
+          curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&
+          refreshenv
+        CIBW_BEFORE_BUILD_LINUX: ${{ inputs.cibw-before-build-linux }}
+        CIBW_BEFORE_BUILD_MACOS: ${{ inputs.cibw-before-build-macos }}
+        CIBW_BEFORE_BUILD_WINDOWS: ${{ inputs.cibw-before-build-windows }}
+        CIBW_BUILD_FRONTEND: build
+        CIBW_ENVIRONMENT: ${{ inputs.cibw-environment }}
+        CIBW_ENVIRONMENT_WINDOWS: ${{ inputs.cibw-environment-windows }}
+        CIBW_ENVIRONMENT_MACOS: ${{ inputs.cibw-environment-macos }}
+        CIBW_SKIP: ${{ inputs.cibw-skip }}
+        CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+        CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+
+    - name: Upload wheels
+      if: inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ./wheelhouse/*.whl
+        retention-days: 7
