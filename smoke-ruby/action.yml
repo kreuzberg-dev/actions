@@ -52,7 +52,7 @@ runs:
 
         rm -f Gemfile.lock
         bundle config set --local path vendor/bundle
-        bundle config set --local local.${{ inputs.gem-name }} "${GITHUB_WORKSPACE}/${{ inputs.local-package-dir }}"
+        bundle config set --local "local.${{ inputs.gem-name }}" "${GITHUB_WORKSPACE}/${{ inputs.local-package-dir }}"
         bundle install
         bundle exec ruby "${{ inputs.entry-script }}"
         popd >/dev/null

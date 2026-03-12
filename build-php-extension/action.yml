@@ -33,7 +33,11 @@ runs:
       run: |
         set -euo pipefail
         cargo build --release -p "${{ inputs.crate-name }}"
-        echo "extension-path=$GITHUB_WORKSPACE/target/release/lib${{ inputs.lib-name }}.so" >> "$GITHUB_OUTPUT"
+        if [[ "$RUNNER_OS" == "macOS" ]]; then
+          echo "extension-path=$GITHUB_WORKSPACE/target/release/lib${{ inputs.lib-name }}.dylib" >> "$GITHUB_OUTPUT"
+        else
+          echo "extension-path=$GITHUB_WORKSPACE/target/release/lib${{ inputs.lib-name }}.so" >> "$GITHUB_OUTPUT"
+        fi
 
     # --- Windows ---
     - name: Install LLVM for libclang (Windows)

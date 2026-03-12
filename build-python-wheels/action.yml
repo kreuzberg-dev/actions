@@ -43,9 +43,9 @@ inputs:
     required: false
     default: 'MATURIN_BUILD_ARGS=""'
   artifact-name:
-    description: Name for the uploaded artifact
+    description: Name for the uploaded artifact (must be passed explicitly, e.g. wheels-Linux)
     required: false
-    default: "wheels-${{ runner.os }}"
+    default: ""
   upload-artifact:
     description: Whether to upload the wheels as an artifact
     required: false
@@ -54,7 +54,7 @@ inputs:
 outputs:
   artifact-name:
     description: Name of the uploaded artifact
-    value: ${{ inputs.artifact-name }}
+    value: ${{ steps.artifact.outputs.name }}
 
 runs:
   using: composite
@@ -89,10 +89,21 @@ runs:
         CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
         CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
 
+    - name: Determine artifact name
+      if: inputs.upload-artifact == 'true'
+      id: artifact
+      shell: bash
+      run: |
+        NAME="${{ inputs.artifact-name }}"
+        if [[ -z "$NAME" ]]; then
+          NAME="wheels-${RUNNER_OS}"
+        fi
+        echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
     - name: Upload wheels
       if: inputs.upload-artifact == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ inputs.artifact-name }}
+        name: ${{ steps.artifact.outputs.name }}
         path: ./wheelhouse/*.whl
         retention-days: 7

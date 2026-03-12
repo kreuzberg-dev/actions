@@ -25,7 +25,9 @@ runs:
     - name: Build WASM bundle
       shell: bash
       working-directory: ${{ inputs.crate-dir }}
-      run: ${{ inputs.build-command }}
+      run: |
+        set -euo pipefail
+        ${{ inputs.build-command }}
 
     - name: Pack WASM tarball
       if: inputs.pack-tarball == 'true'

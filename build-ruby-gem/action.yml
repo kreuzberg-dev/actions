@@ -14,7 +14,7 @@ runs:
     - name: Set LD_LIBRARY_PATH (Linux)
       if: runner.os == 'Linux'
       shell: bash
-      run: echo "LD_LIBRARY_PATH=$(ruby -rrbconfig -e'puts RbConfig::CONFIG["libdir"]')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> $GITHUB_ENV
+      run: echo "LD_LIBRARY_PATH=$(ruby -rrbconfig -e'puts RbConfig::CONFIG["libdir"]')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
     - name: Install Ruby gems (Unix)
       if: runner.os != 'Windows'
@@ -51,7 +51,7 @@ runs:
     - name: Configure bindgen sysroot (Windows)
       if: runner.os == 'Windows'
       shell: bash
-      run: echo "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-gnu --sysroot=${RI_DEVKIT//\\/\/}$MSYSTEM_PREFIX" >> $GITHUB_ENV
+      run: echo "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-gnu --sysroot=${RI_DEVKIT//\\/\/}$MSYSTEM_PREFIX" >> "$GITHUB_ENV"
 
     - name: Install Ruby gems (Windows)
       if: runner.os == 'Windows'
@@ -61,7 +61,7 @@ runs:
         PACKAGE_DIR: ${{ inputs.package-dir }}
       run: |
         $unixPath = ridk exec bash -lc "cygpath -au '$env:GITHUB_WORKSPACE/$env:PACKAGE_DIR'"
-        ridk exec bash -lc "cd $unixPath && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle install"
+        ridk exec bash -lc "cd '$unixPath' && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle install"
 
     - name: Compile Ruby extension (Windows)
       if: runner.os == 'Windows'
@@ -72,4 +72,4 @@ runs:
         PACKAGE_DIR: ${{ inputs.package-dir }}
       run: |
         $unixPath = ridk exec bash -lc "cygpath -au '$env:GITHUB_WORKSPACE/$env:PACKAGE_DIR'"
-        ridk exec bash -lc "cd $unixPath && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle exec rake compile"
+        ridk exec bash -lc "cd '$unixPath' && export RUSTUP_TOOLCHAIN=stable-gnu CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ && bundle exec rake compile"

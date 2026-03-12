@@ -25,7 +25,9 @@ runs:
     - name: Build NAPI-RS bindings
       shell: bash
       working-directory: ${{ inputs.crate-dir }}
-      run: ${{ inputs.build-command }}
+      run: |
+        set -euo pipefail
+        ${{ inputs.build-command }}
 
     - name: Pack Node tarball
       if: inputs.pack-tarball == 'true'

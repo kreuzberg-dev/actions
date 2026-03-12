@@ -43,10 +43,12 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
+        $ErrorActionPreference = 'Stop'
         $tmp = Join-Path $env:RUNNER_TEMP "php-smoke-windows"
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        Copy-Item -Path "$env:GITHUB_WORKSPACE/${{ inputs.smoke-dir }}/*" -Destination $tmp -Recurse -Force
+        $srcDir = Join-Path $env:GITHUB_WORKSPACE "${{ inputs.smoke-dir }}"
+        Copy-Item -Path (Join-Path $srcDir "*") -Destination $tmp -Recurse -Force
         Set-Location $tmp
         $workspace = $env:GITHUB_WORKSPACE -replace '\\','/'
         composer config repositories.local path "$workspace/${{ inputs.local-package-dir }}" --no-plugins
