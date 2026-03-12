@@ -1,0 +1,48 @@
+name: Smoke Test Python Package
+description: Tests Python package installation and functionality
+
+inputs:
+  wheel-path:
+    description: Path to the Python wheel file (optional, uses local-package-dir if not provided)
+    required: false
+    default: ""
+  smoke-dir:
+    description: Path to the smoke test directory (relative to repo root)
+    required: false
+    default: "examples/python-smoke"
+  local-package-dir:
+    description: Path to the local Python package directory for editable install (relative to repo root)
+    required: false
+    default: "packages/python"
+  entry-script:
+    description: Python script to run in the smoke directory
+    required: false
+    default: "main.py"
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke Python install
+      shell: bash
+      run: |
+        set -euo pipefail
+        tmp=$(mktemp -d)
+        cp -R "${{ inputs.smoke-dir }}/." "$tmp"/
+        pushd "$tmp" >/dev/null
+        python -m venv .venv
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          VENV_PY=".venv/Scripts/python.exe"
+        else
+          VENV_PY=".venv/bin/python"
+        fi
+        "$VENV_PY" -m pip install --upgrade pip
+
+        if [[ -n "${{ inputs.wheel-path }}" ]]; then
+          "$VENV_PY" -m pip install "${{ inputs.wheel-path }}"
+        else
+          "$VENV_PY" -m pip install "${GITHUB_WORKSPACE}/${{ inputs.local-package-dir }}"
+        fi
+
+        "$VENV_PY" "${{ inputs.entry-script }}"
+        popd >/dev/null
+        echo "Python package smoke test passed"

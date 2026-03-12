@@ -1,0 +1,35 @@
+name: Smoke Test Rust Crate
+description: Tests Rust crate with local path dependency
+
+inputs:
+  smoke-dir:
+    description: Path to the smoke test directory (relative to repo root)
+    required: false
+    default: "examples/rust-smoke"
+  cargo-config-template:
+    description: Path to cargo config template (relative to smoke-dir), empty to skip
+    required: false
+    default: ".cargo/config.local-template.toml"
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke Rust example
+      shell: bash
+      run: |
+        set -euo pipefail
+        pushd "${{ inputs.smoke-dir }}" >/dev/null
+
+        if [[ -n "${{ inputs.cargo-config-template }}" && -f "${{ inputs.cargo-config-template }}" ]]; then
+          mkdir -p .cargo
+          cp "${{ inputs.cargo-config-template }}" .cargo/config.toml
+        fi
+
+        cargo run --quiet
+
+        if [[ -f .cargo/config.toml && -n "${{ inputs.cargo-config-template }}" ]]; then
+          rm .cargo/config.toml
+        fi
+
+        popd >/dev/null
+        echo "Rust crate smoke test passed"

@@ -1,0 +1,38 @@
+name: Smoke Test Node Package
+description: Tests Node.js package installation and functionality
+
+inputs:
+  tarball-path:
+    description: Path to the Node.js package tarball
+    required: true
+  package-name:
+    description: npm package name to set in dependencies
+    required: true
+  smoke-dir:
+    description: Path to the smoke test directory (relative to repo root)
+    required: false
+    default: "examples/node-smoke"
+  run-script:
+    description: npm script to run for validation
+    required: false
+    default: "check"
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke Node install
+      shell: bash
+      env:
+        PACKAGE_NAME: ${{ inputs.package-name }}
+      run: |
+        set -euo pipefail
+        tmp=$(mktemp -d)
+        cp -R "${{ inputs.smoke-dir }}/." "$tmp"/
+        pushd "$tmp" >/dev/null
+        cp "${{ inputs.tarball-path }}" ./node.tgz
+        node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.dependencies=pkg.dependencies||{};pkg.dependencies[process.env.PACKAGE_NAME]='file:./node.tgz';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n');"
+        rm -f pnpm-lock.yaml
+        pnpm install --no-frozen-lockfile
+        pnpm run "${{ inputs.run-script }}"
+        popd >/dev/null
+        echo "Node package smoke test passed"

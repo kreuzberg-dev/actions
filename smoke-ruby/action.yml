@@ -1,0 +1,59 @@
+name: Smoke Test Ruby Gem
+description: Tests Ruby gem installation and functionality
+
+inputs:
+  gem-file:
+    description: Path to the Ruby gem file (optional, uses bundle install with local path if not provided)
+    required: false
+    default: ""
+  smoke-dir:
+    description: Path to the smoke test directory (relative to repo root)
+    required: false
+    default: "examples/ruby-smoke"
+  local-package-dir:
+    description: Path to the local Ruby package directory for bundle install
+    required: false
+    default: "packages/ruby"
+  gem-name:
+    description: Gem name for bundle config local override
+    required: true
+  entry-script:
+    description: Ruby script to run in the smoke directory
+    required: false
+    default: "app.rb"
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke Ruby install
+      shell: bash
+      run: |
+        set -euo pipefail
+        gem_file="${{ inputs.gem-file }}"
+        if [[ -n "${gem_file}" && "${gem_file}" != /* ]]; then
+          gem_file="${GITHUB_WORKSPACE}/${gem_file}"
+        fi
+        if [[ -n "${gem_file}" && ! -f "${gem_file}" ]]; then
+          echo "error: gem file not found: ${gem_file}" >&2
+          exit 1
+        fi
+
+        tmp=$(mktemp -d)
+        cp -R "${{ inputs.smoke-dir }}/." "$tmp"/
+        pushd "$tmp" >/dev/null
+
+        if [[ -n "${gem_file}" ]]; then
+          gem install "${gem_file}" --no-document
+          ruby "${{ inputs.entry-script }}"
+          popd >/dev/null
+          echo "Ruby gem smoke test passed"
+          exit 0
+        fi
+
+        rm -f Gemfile.lock
+        bundle config set --local path vendor/bundle
+        bundle config set --local local.${{ inputs.gem-name }} "${GITHUB_WORKSPACE}/${{ inputs.local-package-dir }}"
+        bundle install
+        bundle exec ruby "${{ inputs.entry-script }}"
+        popd >/dev/null
+        echo "Ruby gem smoke test passed"

@@ -1,0 +1,52 @@
+name: Smoke Test Go Bindings
+description: Tests Go cgo bindings with FFI library
+
+inputs:
+  ffi-crate-name:
+    description: Name of the Rust FFI crate to build
+    required: true
+  smoke-dir:
+    description: Path to the smoke test directory (relative to repo root)
+    required: false
+    default: "examples/go-smoke"
+  entry-file:
+    description: Go file to run
+    required: false
+    default: "main.go"
+
+runs:
+  using: composite
+  steps:
+    - name: Build FFI library
+      shell: bash
+      run: |
+        set -euo pipefail
+        cargo build --release -p "${{ inputs.ffi-crate-name }}"
+
+    - name: Smoke Go install (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        lib_path="${GITHUB_WORKSPACE}/target/release"
+
+        export CGO_LDFLAGS="-L$lib_path"
+
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          export LD_LIBRARY_PATH="$lib_path:${LD_LIBRARY_PATH:-}"
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          export DYLD_LIBRARY_PATH="$lib_path:${DYLD_LIBRARY_PATH:-}"
+        fi
+
+        pushd "${{ inputs.smoke-dir }}" >/dev/null
+        go run "${{ inputs.entry-file }}"
+        popd >/dev/null
+        echo "Go cgo bindings smoke test passed"
+
+    - name: Smoke Go install (Windows) - SKIPPED
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        echo "Go CGO smoke test skipped on Windows due to MSVC/MinGW incompatibility"
+        echo "The Rust FFI library is built with MSVC, but Go's CGO uses MinGW GCC,"
+        echo "which cannot link against MSVC libraries. This is a known limitation."
