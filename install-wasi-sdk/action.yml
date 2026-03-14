@@ -46,8 +46,14 @@ runs:
         echo "CXX=" >> "$GITHUB_ENV"
         echo "AR=" >> "$GITHUB_ENV"
 
-    - name: Verify WASI SDK
+    - name: Set WASI_SYSROOT and verify
       shell: bash
       run: |
         echo "WASI SDK installed at: $WASI_SDK_PATH"
-        ls "$WASI_SDK_PATH" || true
+        SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
+        if [ -d "$SYSROOT" ]; then
+          echo "WASI_SYSROOT=${SYSROOT}" >> "$GITHUB_ENV"
+          echo "WASI_SYSROOT set to: $SYSROOT"
+        else
+          echo "::warning::WASI sysroot not found at $SYSROOT"
+        fi
