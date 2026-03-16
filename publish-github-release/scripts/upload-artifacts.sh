@@ -4,8 +4,11 @@ set -euo pipefail
 tag="${INPUT_TAG:?INPUT_TAG is required}"
 artifacts="${INPUT_ARTIFACTS:?INPUT_ARTIFACTS is required}"
 
+# Normalize comma-separated patterns to newline-separated
+artifacts="${artifacts//,/$'\n'}"
+
 # Collect files from newline-separated patterns
-declare -a files
+files=()
 while IFS= read -r pattern; do
   pattern=$(echo "$pattern" | xargs)
   if [[ -z "$pattern" ]]; then
