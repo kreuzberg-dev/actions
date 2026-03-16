@@ -11,7 +11,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/node-smoke"
+    default: "examples/node_smoke"
   run-script:
     description: npm script to run for validation
     required: false

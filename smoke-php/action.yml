@@ -8,7 +8,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/php-smoke"
+    default: "examples/php_smoke"
   local-package-dir:
     description: Path to the local PHP Composer package directory (relative to repo root)
     required: false

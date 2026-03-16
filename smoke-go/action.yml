@@ -8,7 +8,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/go-smoke"
+    default: "examples/go_smoke"
   entry-file:
     description: Go file to run
     required: false

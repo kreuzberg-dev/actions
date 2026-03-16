@@ -9,7 +9,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/python-smoke"
+    default: "examples/python_smoke"
   local-package-dir:
     description: Path to the local Python package directory for editable install (relative to repo root)
     required: false

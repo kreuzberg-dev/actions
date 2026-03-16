@@ -5,7 +5,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/rust-smoke"
+    default: "examples/rust_smoke"
   cargo-config-template:
     description: Path to cargo config template (relative to smoke-dir), empty to skip
     required: false

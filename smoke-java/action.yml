@@ -9,7 +9,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/java-smoke"
+    default: "examples/java_smoke"
   ffi-crate-name:
     description: Name of the Rust FFI crate to build
     required: true

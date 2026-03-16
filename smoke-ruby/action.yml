@@ -9,7 +9,7 @@ inputs:
   smoke-dir:
     description: Path to the smoke test directory (relative to repo root)
     required: false
-    default: "examples/ruby-smoke"
+    default: "examples/ruby_smoke"
   local-package-dir:
     description: Path to the local Ruby package directory for bundle install
     required: false

@@ -37,10 +37,18 @@ if [[ -n "$package_dir" ]]; then
 
   echo "Publishing from directory: $package_dir"
 
+  # Change to package directory before publishing.
+  # This ensures npm's provenance attestation derives git info from the correct repository.
+  # Without this, npm's git commands run from the repo root, which may give incorrect remote info
+  # for monorepo subdirectories (e.g., deriving a wrong git URL for the package).
+  pushd "$package_dir" >/dev/null
+
   set +e
-  output=$(npm publish "$package_dir" "${publish_flags[@]}" 2>&1)
+  output=$(npm publish . "${publish_flags[@]}" 2>&1)
   exit_code=$?
   set -e
+
+  popd >/dev/null
 
   if [[ $exit_code -eq 0 ]]; then
     echo "Published successfully"
