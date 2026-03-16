@@ -33,6 +33,7 @@ jobs:
         with:
           packages-dir: dist
           dry-run: "true"
+          provenance: "false"
 
   test-publish-pypi-dry-run:
     runs-on: ubuntu-latest

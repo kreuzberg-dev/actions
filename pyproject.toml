@@ -21,6 +21,9 @@ dev = [
   "ruff",
 ]
 
+[tool.hatch]
+build.targets.wheel.packages = []
+
 [tool.ruff]
 target-version = "py310"
 line-length = 120
