@@ -11,6 +11,10 @@ inputs:
     description: "Allow replacing an existing version"
     required: false
     default: "true"
+  skip-docs:
+    description: "Skip generating docs (needed for NIF packages without pre-built binaries)"
+    required: false
+    default: "false"
   dry-run:
     description: "Perform a dry run without actually publishing"
     required: false
@@ -40,11 +44,15 @@ runs:
         HEX_API_KEY: ${{ env.HEX_API_KEY }}
         PACKAGE_DIR: ${{ inputs.package-dir }}
         REPLACE: ${{ inputs.replace }}
+        SKIP_DOCS: ${{ inputs.skip-docs }}
       run: |
         cd "$PACKAGE_DIR"
         PUBLISH_FLAGS="--yes"
         if [[ "$REPLACE" == "true" ]]; then
           PUBLISH_FLAGS="${PUBLISH_FLAGS} --replace"
+        fi
+        if [[ "$SKIP_DOCS" == "true" ]]; then
+          PUBLISH_FLAGS="package ${PUBLISH_FLAGS}"
         fi
         set +e
         # shellcheck disable=SC2086
