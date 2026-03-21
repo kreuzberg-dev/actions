@@ -1,11 +1,11 @@
 name: Check Registry for Existing Version
 description: >
   Query a package registry to determine if a specific version already exists.
-  Supports: pypi, npm, rubygems, hex, maven, nuget, cratesio, packagist, homebrew.
+  Supports: pypi, npm, rubygems, hex, maven, nuget, cratesio, packagist, homebrew, github-release.
 
 inputs:
   registry:
-    description: "Registry to check: pypi | npm | rubygems | hex | maven | nuget | cratesio | packagist | homebrew"
+    description: "Registry to check: pypi | npm | rubygems | hex | maven | nuget | cratesio | packagist | homebrew | github-release"
     required: true
   package:
     description: "Package name (e.g. 'kreuzberg', '@kreuzberg/node-linux-x64-gnu', 'dev.kreuzberg:kreuzberg')"
@@ -23,6 +23,22 @@ inputs:
     default: ""
   tap-repo:
     description: "Homebrew tap repository (e.g. kreuzberg-dev/homebrew-tap). Required for homebrew registry."
+    required: false
+    default: ""
+  tag:
+    description: "GitHub release tag (for github-release registry). Defaults to v{version}."
+    required: false
+    default: ""
+  asset-prefix:
+    description: "Asset name prefix to match (for github-release registry)."
+    required: false
+    default: ""
+  assets:
+    description: "Comma-separated list of required asset names (for github-release registry)."
+    required: false
+    default: ""
+  repo:
+    description: "GitHub repository (owner/repo) for github-release registry."
     required: false
     default: ""
 
@@ -43,5 +59,9 @@ runs:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
         INPUT_TAP_REPO: ${{ inputs.tap-repo }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_ASSET_PREFIX: ${{ inputs.asset-prefix }}
+        INPUT_ASSETS: ${{ inputs.assets }}
+        INPUT_REPO: ${{ inputs.repo }}
       run: |
-        ${{ github.action_path }}/scripts/check.sh
+        python3 ${{ github.action_path }}/scripts/check.py
