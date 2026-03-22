@@ -18,7 +18,7 @@ runs:
         fi
 
     - name: Install WASI SDK
-      uses: bytecodealliance/setup-wasi-sdk-action@dcd040abc428fe35253676ef0e6379fba9bf8f9f # main
+      uses: bytecodealliance/setup-wasi-sdk-action@b2de090b44eb70013ee96b393727d473b35e1728 # main
       with:
         version: ${{ inputs.version }}
         github-token: ${{ github.token }}
