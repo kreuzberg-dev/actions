@@ -9,9 +9,9 @@ inputs:
     required: false
     default: python-dependencies
   install-command:
-    description: Command to install dependencies (default uses uv sync)
+    description: Command to install dependencies (default installs deps without building the project)
     required: false
-    default: "uv sync"
+    default: "uv sync --all-extras --all-packages --all-groups --no-install-project --no-install-workspace"
   preserve-pkg-config-path:
     description: Preserve PKG_CONFIG_PATH for OpenSSL after uv operations
     required: false
