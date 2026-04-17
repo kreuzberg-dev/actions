@@ -21,6 +21,10 @@ echo "OpenSSL detected at: $prefix"
 echo "OpenSSL lib path: $prefix/lib"
 echo "OpenSSL include path: $prefix/include"
 
+# Force-link openssl so pre-built Ruby/Python binaries can find it in system paths
+# (openssl@3 is keg-only by default on macOS)
+brew link openssl@3 --force 2>/dev/null || true
+
 {
   echo "OPENSSL_DIR=$prefix"
   echo "OPENSSL_LIB_DIR=$prefix/lib"
