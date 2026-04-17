@@ -11,6 +11,9 @@ else
   brew install openssl@3
 fi
 
+# Force-link openssl so pre-built Ruby/Python binaries can find it in system paths
+brew link openssl@3 --force 2>/dev/null || true
+
 if brew list pkg-config &>/dev/null; then
   echo "pkg-config already installed"
 else
