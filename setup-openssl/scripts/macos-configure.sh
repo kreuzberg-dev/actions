@@ -30,6 +30,7 @@ brew link openssl@3 --force 2>/dev/null || true
   echo "OPENSSL_LIB_DIR=$prefix/lib"
   echo "OPENSSL_INCLUDE_DIR=$prefix/include"
   echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+  echo "DYLD_LIBRARY_PATH=$prefix/lib:${DYLD_LIBRARY_PATH:-}"
 } >>"$GITHUB_ENV"
 
 if [[ -n "${GITHUB_PATH:-}" && -d "$prefix/bin" ]]; then
