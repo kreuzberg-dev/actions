@@ -5,6 +5,10 @@ description: Shared GitHub Actions composite actions for kreuzberg-dev CI/CD pip
 gitignore: true
 
 includes:
+  - name: kreuzberg-core
+    source: https://github.com/kreuzberg-dev/ai-rulez.git
+    path: modules/core
+    merge_strategy: local-override
   - name: kreuzberg-cicd
     source: https://github.com/kreuzberg-dev/ai-rulez.git
     path: modules/cicd
