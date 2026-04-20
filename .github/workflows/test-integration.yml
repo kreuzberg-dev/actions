@@ -29,34 +29,6 @@ jobs:
           python-version: "3.12"
           install-command: "uv sync || true"
 
-      - name: Setup Node
-        uses: ./setup-node-workspace
-        with:
-          frozen-lockfile: "false"
-
-      - name: Verify all tools available
-        shell: bash
-        run: |
-          echo "=== Tool Versions ==="
-          task --version
-          rustc --version
-          cargo --version
-          python --version
-          uv --version
-          node --version
-          pnpm --version
-          echo "=== All tools verified ==="
-
-      - name: Create minimal pyproject.toml for Python
-        shell: bash
-        run: |
-          cat > pyproject.toml << 'TOML'
-          [project]
-          name = "test-project"
-          version = "0.0.0"
-          requires-python = ">=3.10"
-          TOML
-
       - name: Create minimal package.json for Node
         shell: bash
         run: |
@@ -72,6 +44,34 @@ jobs:
           settings:
             autoInstallPeers: true
           YAML
+
+      - name: Setup Node
+        uses: ./setup-node-workspace
+        with:
+          frozen-lockfile: "false"
+
+      - name: Create minimal pyproject.toml for Python
+        shell: bash
+        run: |
+          cat > pyproject.toml << 'TOML'
+          [project]
+          name = "test-project"
+          version = "0.0.0"
+          requires-python = ">=3.10"
+          TOML
+
+      - name: Verify all tools available
+        shell: bash
+        run: |
+          echo "=== Tool Versions ==="
+          task --version
+          rustc --version
+          cargo --version
+          python --version
+          uv --version
+          node --version
+          pnpm --version
+          echo "=== All tools verified ==="
 
   integration-linux-only:
     runs-on: ubuntu-latest
