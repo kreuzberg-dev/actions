@@ -1,0 +1,26 @@
+name: Validate Issues (Reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  validate-issue-title:
+    name: Issue Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check conventional commit format
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          if ! echo "$ISSUE_TITLE" | grep -qE '^(feat|fix|docs|chore|refactor|test|ci|perf|build): .+'; then
+            echo "::error::Issue title must follow conventional commit format: type: description"
+            echo ""
+            echo "Valid types: feat, fix, docs, chore, refactor, test, ci, perf, build"
+            echo "Examples:"
+            echo "  feat: add user authentication"
+            echo "  fix: handle empty input"
+            echo "  docs: update API guide"
+            echo ""
+            echo "Got: $ISSUE_TITLE"
+            exit 1
+          fi

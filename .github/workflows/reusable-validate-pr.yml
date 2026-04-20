@@ -1,0 +1,57 @@
+name: Validate PR (Reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  validate-pr-title:
+    name: PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check conventional commit format
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|chore|refactor|test|ci|perf|build|style|revert)(\(.+\))?: .+'; then
+            echo "::error::PR title must follow conventional commit format: type(scope): description"
+            echo ""
+            echo "Valid types: feat, fix, docs, chore, refactor, test, ci, perf, build, style, revert"
+            echo "Examples:"
+            echo "  feat: add user authentication"
+            echo "  fix(parser): handle empty input"
+            echo "  docs: update API guide"
+            echo ""
+            echo "Got: $PR_TITLE"
+            exit 1
+          fi
+
+  validate-commits:
+    name: Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for AI attribution
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          offending=""
+          while IFS= read -r sha; do
+            message=$(git log --format=%B -n 1 "$sha")
+            if echo "$message" | grep -qiE 'Co-Authored-By:.*\b(Claude|GPT|Copilot|AI|Anthropic|OpenAI)\b'; then
+              offending="$offending\n  $sha: $(git log --format=%s -n 1 "$sha")"
+            elif echo "$message" | grep -qiE 'Generated (by|with).*\b(AI|Claude|GPT|Copilot|Anthropic|OpenAI)\b'; then
+              offending="$offending\n  $sha: $(git log --format=%s -n 1 "$sha")"
+            fi
+          done < <(git rev-list "$BASE_SHA".."$HEAD_SHA")
+
+          if [ -n "$offending" ]; then
+            echo "::error::AI attribution found in commit messages. Remove Co-Authored-By AI lines and similar signatures."
+            echo ""
+            echo "Offending commits:"
+            echo -e "$offending"
+            exit 1
+          fi
