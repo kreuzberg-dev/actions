@@ -162,7 +162,7 @@ bottle_block+=$'\n'"  end"
 # Update URL and sha256
 new_formula=$(echo "$formula_content" | sed \
   -e "s|url \"https://github.com/${github_repo}/archive/.*\.tar\.gz\"|url \"https://github.com/${github_repo}/archive/${tag}.tar.gz\"|" \
-  -e "s|sha256 \"[a-f0-9]*\"|sha256 \"${tarball_sha256}\"|")
+  -e "s|sha256 ['\"'][a-f0-9]*['\"']|sha256 \"${tarball_sha256}\"|")
 
 # Remove existing bottle blocks
 new_formula=$(echo "$new_formula" | sed '/^  bottle do$/,/^  end$/d')
@@ -248,3 +248,4 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "- **Bottles**: ${#bottle_hashes[@]}"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
+
