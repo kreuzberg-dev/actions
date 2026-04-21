@@ -62,6 +62,7 @@ lint.per-file-ignores."**/scripts/**" = [
   "D101",
   "D102",
   "D103",
+  "INP001",
   "PERF401",
   "PLC0415",
   "PLR0912",
