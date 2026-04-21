@@ -186,14 +186,32 @@ def _verify_tar_integrity(path: Path) -> bool:
     return result.returncode == 0
 
 
-def _collect_bottles(
+def _upload_bottles_to_release(
     bottles_dir: Path,
     formula_name: str,
     github_repo: str,
     tag: str,
-    temp_dir: Path,
+) -> None:
+    """Upload bottle artifacts to the GitHub release."""
+    bottle_files = sorted(bottles_dir.glob(f"{formula_name}-*.bottle.tar.gz"))
+    if not bottle_files:
+        return
+
+    file_args = [str(p) for p in bottle_files]
+    print(f"Uploading {len(file_args)} bottle(s) to release {tag}...")
+    subprocess.run(
+        ["gh", "release", "upload", tag, *file_args, "--repo", github_repo, "--clobber"],
+        check=True,
+        timeout=300,
+    )
+    print("Bottles uploaded successfully")
+
+
+def _collect_bottles(
+    bottles_dir: Path,
+    formula_name: str,
 ) -> tuple[dict[str, str], list[str]]:
-    """Download, verify, and hash all bottle artifacts. Returns (bottle_hashes, bottle_tags)."""
+    """Verify and hash all local bottle artifacts. Returns (bottle_hashes, bottle_tags)."""
     bottle_hashes: dict[str, str] = {}
     bottle_tags: list[str] = []
 
@@ -206,18 +224,12 @@ def _collect_bottles(
             continue
 
         print(f"Processing bottle: {filename} ({bottle_tag})")
-        bottle_url = f"https://github.com/{github_repo}/releases/download/{tag}/{filename}"
-        downloaded = temp_dir / filename
 
-        if not download_with_retry(bottle_url, downloaded):
-            print(f"Error: Failed to download bottle: {bottle_url}", file=sys.stderr)
+        if not _verify_tar_integrity(bottle_path):
+            print(f"Error: Bottle is corrupted: {filename}", file=sys.stderr)
             sys.exit(1)
 
-        if not _verify_tar_integrity(downloaded):
-            print(f"Error: Downloaded bottle is corrupted: {filename}", file=sys.stderr)
-            sys.exit(1)
-
-        sha256 = compute_sha256(downloaded)
+        sha256 = compute_sha256(bottle_path)
         bottle_hashes[bottle_tag] = sha256
         bottle_tags.append(bottle_tag)
         print(f"  {bottle_tag}: {sha256}")
@@ -328,7 +340,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temp_str:
         temp_dir = Path(temp_str)
 
-        bottle_hashes, bottle_tags = _collect_bottles(bottles_dir, formula_name, github_repo, tag, temp_dir)
+        bottle_hashes, bottle_tags = _collect_bottles(bottles_dir, formula_name)
         if not bottle_hashes:
             print(
                 f"Error: No bottle artifacts found matching {formula_name}-*.bottle.tar.gz in {bottles_dir}",
@@ -336,6 +348,9 @@ def main() -> None:
             )
             sys.exit(1)
         print(f"Validated {len(bottle_hashes)} bottles")
+
+        if not dry_run:
+            _upload_bottles_to_release(bottles_dir, formula_name, github_repo, tag)
 
         tarball_sha256 = _download_source_tarball(github_repo, tag, temp_dir)
 

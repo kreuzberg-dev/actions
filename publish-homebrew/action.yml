@@ -35,6 +35,10 @@ inputs:
     description: "Perform a dry run without pushing to the tap repo"
     required: false
     default: "false"
+  token:
+    description: "GitHub token for uploading bottles to the release"
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: composite
@@ -42,6 +46,7 @@ runs:
     - name: Update Homebrew formula
       shell: bash
       env:
+        GH_TOKEN: ${{ inputs.token }}
         INPUT_BOTTLES_DIR: ${{ inputs.bottles-dir }}
         INPUT_FORMULA_NAME: ${{ inputs.formula-name }}
         INPUT_TAP_REPO: ${{ inputs.tap-repo }}

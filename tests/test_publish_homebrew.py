@@ -1,5 +1,7 @@
 import hashlib
 import importlib.util
+import subprocess
+import tarfile
 from pathlib import Path
 from urllib.error import URLError
 
@@ -393,3 +395,99 @@ def test_download_with_retry_respects_retry_delay(tmp_path, monkeypatch):
     mod.download_with_retry("https://example.com/file.tar.gz", output, max_retries=3, retry_delay=7)
 
     assert sleep_calls == [7]
+
+
+# ---------------------------------------------------------------------------
+# _collect_bottles (hashes local files, no download)
+# ---------------------------------------------------------------------------
+
+
+def _make_bottle_tar(directory, formula_name, version, tag):
+    """Create a valid .bottle.tar.gz file and return its path."""
+    filename = f"{formula_name}-{version}.{tag}.bottle.tar.gz"
+    bottle_path = directory / filename
+    inner_file = directory / "placeholder.txt"
+    inner_file.write_text("bottle content")
+    with tarfile.open(bottle_path, "w:gz") as tar:
+        tar.add(inner_file, arcname="placeholder.txt")
+    inner_file.unlink()
+    return bottle_path
+
+
+def test_collect_bottles_hashes_local_files(tmp_path):
+    bottle_path = _make_bottle_tar(tmp_path, "myformula", "1.0.0", "arm64_sequoia")
+    expected_sha = hashlib.sha256(bottle_path.read_bytes()).hexdigest()
+
+    hashes, tags = mod._collect_bottles(tmp_path, "myformula")
+
+    assert tags == ["arm64_sequoia"]
+    assert hashes["arm64_sequoia"] == expected_sha
+
+
+def test_collect_bottles_multiple_bottles(tmp_path):
+    _make_bottle_tar(tmp_path, "myformula", "1.0.0", "arm64_sequoia")
+    _make_bottle_tar(tmp_path, "myformula", "1.0.0", "ventura")
+
+    hashes, tags = mod._collect_bottles(tmp_path, "myformula")
+
+    assert len(hashes) == 2
+    assert set(tags) == {"arm64_sequoia", "ventura"}
+
+
+def test_collect_bottles_empty_dir(tmp_path):
+    hashes, tags = mod._collect_bottles(tmp_path, "myformula")
+
+    assert hashes == {}
+    assert tags == []
+
+
+def test_collect_bottles_skips_wrong_formula(tmp_path):
+    _make_bottle_tar(tmp_path, "other", "1.0.0", "arm64_sequoia")
+
+    hashes, tags = mod._collect_bottles(tmp_path, "myformula")
+
+    assert hashes == {}
+    assert tags == []
+
+
+# ---------------------------------------------------------------------------
+# _upload_bottles_to_release
+# ---------------------------------------------------------------------------
+
+
+def test_upload_bottles_to_release_calls_gh(tmp_path, monkeypatch):
+    _make_bottle_tar(tmp_path, "myformula", "1.0.0", "arm64_sequoia")
+    run_calls = []
+
+    def mock_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(mod.subprocess, "run", mock_run)
+
+    mod._upload_bottles_to_release(tmp_path, "myformula", "org/repo", "v1.0.0")
+
+    assert len(run_calls) == 1
+    cmd = run_calls[0]
+    assert cmd[0] == "gh"
+    assert cmd[1] == "release"
+    assert cmd[2] == "upload"
+    assert cmd[3] == "v1.0.0"
+    assert "--repo" in cmd
+    assert "org/repo" in cmd
+    assert "--clobber" in cmd
+    assert any("myformula-1.0.0.arm64_sequoia.bottle.tar.gz" in arg for arg in cmd)
+
+
+def test_upload_bottles_to_release_no_bottles(tmp_path, monkeypatch):
+    run_calls = []
+
+    def mock_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(mod.subprocess, "run", mock_run)
+
+    mod._upload_bottles_to_release(tmp_path, "myformula", "org/repo", "v1.0.0")
+
+    assert len(run_calls) == 0
