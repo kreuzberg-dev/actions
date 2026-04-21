@@ -52,4 +52,4 @@ runs:
         INPUT_BOT_EMAIL: ${{ inputs.bot-email }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        ${{ github.action_path }}/scripts/publish.sh
+        python3 ${{ github.action_path }}/scripts/publish.py

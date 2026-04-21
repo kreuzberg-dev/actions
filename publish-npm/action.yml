@@ -45,4 +45,4 @@ runs:
         INPUT_PROVENANCE: ${{ inputs.provenance }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        bash "${GITHUB_ACTION_PATH}/scripts/publish.sh"
+        python3 "${GITHUB_ACTION_PATH}/scripts/publish.py"

@@ -1,0 +1,60 @@
+name: Unit tests
+
+on:
+  push:
+    paths:
+      - "**/scripts/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/test-unit.yml"
+  pull_request:
+    paths:
+      - "**/scripts/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/test-unit.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest tests/ -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: |
+          find . -path '*/scripts/*.py' -not -path './.venv/*' -not -name '__init__.py' | sort | while read -r f; do
+            echo "Checking $f..."
+            uv run mypy "$f"
+          done
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1

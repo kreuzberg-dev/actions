@@ -35,4 +35,4 @@ runs:
         INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        ${{ github.action_path }}/scripts/deploy.sh
+        python3 ${{ github.action_path }}/scripts/deploy.py

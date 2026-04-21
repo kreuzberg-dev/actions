@@ -160,8 +160,8 @@ def check_github_release(
         repo = "kreuzberg-dev/kreuzberg"
 
     try:
-        result = subprocess.run(  # noqa: S603
-            ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],  # noqa: S607
+        result = subprocess.run(
+            ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
             capture_output=True,
             text=True,
             timeout=30,

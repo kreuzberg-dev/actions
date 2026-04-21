@@ -64,18 +64,18 @@ runs:
         DEP_FILES: ${{ inputs.dep-files }}
       run: |
         set -euo pipefail
-        HASH_SCRIPT="${{ github.action_path }}/scripts/compute-hash.sh"
+        HASH_SCRIPT="${{ github.action_path }}/scripts/compute_hash.py"
 
         # Convert newline-separated inputs to space-separated args
         BINDING_ARGS=$(echo "$BINDING_FILES" | tr '\n' ' ')
-        BINDING_HASH=$("$HASH_SCRIPT" $BINDING_ARGS || echo "unknown")
+        BINDING_HASH=$(python3 "$HASH_SCRIPT" $BINDING_ARGS || echo "unknown")
         if [[ "$BINDING_HASH" == "unknown" ]]; then
           BINDING_HASH="nofiles"
         fi
         echo "binding-hash=$BINDING_HASH" >> "$GITHUB_OUTPUT"
 
         DEP_ARGS=$(echo "$DEP_FILES" | tr '\n' ' ')
-        DEPS_HASH=$("$HASH_SCRIPT" --files $DEP_ARGS || echo "unknown")
+        DEPS_HASH=$(python3 "$HASH_SCRIPT" --files $DEP_ARGS || echo "unknown")
         if [[ "$DEPS_HASH" == "unknown" ]]; then
           DEPS_HASH="nodeps"
         fi
@@ -126,7 +126,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate-cache.sh"
+        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate_cache.py"
         CACHE_PATHS="${{ inputs.cache-paths }}"
 
         declare -a ARTIFACT_PATHS
@@ -136,7 +136,7 @@ runs:
           fi
         done <<< "$CACHE_PATHS"
 
-        if "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"; then
+        if python3 "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"; then
           echo "validated=true" >> "$GITHUB_OUTPUT"
         else
           echo "validated=false" >> "$GITHUB_OUTPUT"
@@ -170,7 +170,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate-cache.sh"
+        VALIDATE_SCRIPT="${{ github.action_path }}/scripts/validate_cache.py"
         CACHE_PATHS="${{ inputs.cache-paths }}"
 
         declare -a ARTIFACT_PATHS
@@ -180,7 +180,7 @@ runs:
           fi
         done <<< "$CACHE_PATHS"
 
-        "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"
+        python3 "$VALIDATE_SCRIPT" "${{ inputs.binding-name }}" "${ARTIFACT_PATHS[@]}"
 
     - name: Save binding to cache
       if: env.CACHE_HIT == 'false'

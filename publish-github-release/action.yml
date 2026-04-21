@@ -46,7 +46,7 @@ runs:
         INPUT_PRERELEASE: ${{ inputs.prerelease }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        ${{ github.action_path }}/scripts/ensure-release.sh
+        python3 ${{ github.action_path }}/scripts/ensure_release.py
 
     - name: Upload release artifacts
       if: inputs.artifacts != '' && inputs.dry-run != 'true'
@@ -56,4 +56,4 @@ runs:
         INPUT_TAG: ${{ inputs.tag }}
         INPUT_ARTIFACTS: ${{ inputs.artifacts }}
       run: |
-        ${{ github.action_path }}/scripts/upload-artifacts.sh
+        python3 ${{ github.action_path }}/scripts/upload_artifacts.py

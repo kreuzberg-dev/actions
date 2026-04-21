@@ -1,0 +1,26 @@
+name: Validate Version Consistency
+description: Check that all package manifests declare the same version
+inputs:
+  version:
+    description: "Expected version (without v prefix)"
+    required: true
+  manifest-paths:
+    description: "Newline-separated type=path pairs (e.g., cargo=Cargo.toml)"
+    required: true
+outputs:
+  valid:
+    description: "Whether all versions match"
+    value: ${{ steps.validate.outputs.valid }}
+  mismatches:
+    description: "JSON array of mismatch descriptions"
+    value: ${{ steps.validate.outputs.mismatches }}
+runs:
+  using: composite
+  steps:
+    - name: Validate versions
+      id: validate
+      shell: bash
+      env:
+        EXPECTED_VERSION: ${{ inputs.version }}
+        MANIFEST_PATHS: ${{ inputs.manifest-paths }}
+      run: python3 "${{ github.action_path }}/scripts/validate.py"

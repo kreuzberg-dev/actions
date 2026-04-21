@@ -1,0 +1,33 @@
+name: Python Lint
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version"
+        required: false
+        type: string
+        default: "3.10"
+      pre-commit-args:
+        description: "Arguments to pass to prek run"
+        required: false
+        type: string
+        default: "--all-files"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run pre-commit hooks
+        uses: j178/prek-action@v2
+        with:
+          args: run ${{ inputs.pre-commit-args }}

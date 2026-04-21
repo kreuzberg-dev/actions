@@ -1,0 +1,25 @@
+name: Retag for Republish
+description: >
+  Delete and recreate a Git tag on HEAD so that registry republish workflows
+  pick up the new commit without needing a new version number.
+
+inputs:
+  tag:
+    description: "The tag to move to HEAD (e.g. v1.2.3)"
+    required: true
+
+outputs:
+  sha:
+    description: "The HEAD commit SHA that the tag now points to"
+    value: ${{ steps.retag.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Move tag to HEAD
+      id: retag
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+      run: >-
+        python3 "${{ github.action_path }}/scripts/retag.py"

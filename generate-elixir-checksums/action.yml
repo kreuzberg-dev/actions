@@ -1,0 +1,50 @@
+name: Generate Elixir Checksums
+description: >
+  Download NIF release artifacts from GitHub and generate a RustlerPrecompiled
+  checksum file mapping each artifact filename to its SHA256 digest.
+
+inputs:
+  github-repo:
+    description: "GitHub repository in org/repo format"
+    required: true
+  tag:
+    description: "Release tag to download artifacts from (e.g. v1.2.3)"
+    required: true
+  version:
+    description: "Library version string (e.g. 1.2.3)"
+    required: true
+  lib-name:
+    description: "Rust library name without the lib prefix (e.g. mylib)"
+    required: true
+  nif-versions:
+    description: "Comma-separated NIF versions to include"
+    required: false
+    default: "2.16,2.17"
+  targets:
+    description: "Comma-separated Rust target triples to include"
+    required: true
+  output-path:
+    description: "Path where the checksum file will be written"
+    required: true
+
+outputs:
+  checksum-file:
+    description: "Path to the generated checksum file"
+    value: ${{ steps.generate.outputs.checksum-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Generate checksum file
+      id: generate
+      shell: bash
+      env:
+        INPUT_GITHUB_REPO: ${{ inputs.github-repo }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_LIB_NAME: ${{ inputs.lib-name }}
+        INPUT_NIF_VERSIONS: ${{ inputs.nif-versions }}
+        INPUT_TARGETS: ${{ inputs.targets }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
+      run: >-
+        python3 "${{ github.action_path }}/scripts/generate.py"

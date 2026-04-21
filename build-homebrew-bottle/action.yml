@@ -1,0 +1,43 @@
+name: Build Homebrew Bottle
+description: >
+  Create a Homebrew-compatible bottle tarball from a pre-built CLI binary,
+  compute its SHA256, and expose the result as step outputs.
+
+inputs:
+  binary-path:
+    description: "Path to the compiled binary to package"
+    required: true
+  formula-name:
+    description: "Homebrew formula name (e.g. mytool)"
+    required: true
+  version:
+    description: "Formula version (e.g. 1.2.3)"
+    required: true
+  bottle-tag:
+    description: "Homebrew bottle tag (e.g. arm64_sequoia, ventura)"
+    required: true
+
+outputs:
+  filename:
+    description: "Bottle tarball filename"
+    value: ${{ steps.build.outputs.filename }}
+  sha256:
+    description: "SHA256 hex digest of the bottle tarball"
+    value: ${{ steps.build.outputs.sha256 }}
+  path:
+    description: "Absolute path to the bottle tarball in the workspace"
+    value: ${{ steps.build.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build bottle tarball
+      id: build
+      shell: bash
+      env:
+        INPUT_BINARY_PATH: ${{ inputs.binary-path }}
+        INPUT_FORMULA_NAME: ${{ inputs.formula-name }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_BOTTLE_TAG: ${{ inputs.bottle-tag }}
+      run: >-
+        python3 "${{ github.action_path }}/scripts/build_bottle.py"

@@ -25,10 +25,14 @@ tasks:
       - pre-commit run --all-files
 
   test:
-    desc: Run action test workflows locally via act
+    desc: Run all tests
     cmds:
-      - act -l
-      - echo "Run 'task test:act -- test-setup-rust.yml' to test a specific action"
+      - task: test:unit
+
+  test:unit:
+    desc: Run pytest unit tests
+    cmds:
+      - uv run pytest tests/ -v
 
   test:act:
     desc: Run a specific test workflow locally (usage{{":"}} task test:act -- test-setup-rust.yml)

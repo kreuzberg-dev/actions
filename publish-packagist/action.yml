@@ -45,4 +45,4 @@ runs:
         INPUT_POLL_INTERVAL: ${{ inputs.poll-interval }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        ${{ github.action_path }}/scripts/publish.sh
+        python3 ${{ github.action_path }}/scripts/publish.py

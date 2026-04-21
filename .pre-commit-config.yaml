@@ -48,7 +48,7 @@ repos:
 
   # Shell scripts: formatting and linting
   - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.14.2-1
+    rev: v3.13.1-1
     hooks:
       - id: shfmt
         args: ["-w", "-i", "2"]
@@ -72,7 +72,11 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.20.1
+  - repo: local
     hooks:
       - id: mypy
+        name: mypy
+        entry: bash -c 'for f in "$@"; do uv run mypy "$f" || exit 1; done' --
+        language: system
+        types: [python]
+        exclude: ^tests/

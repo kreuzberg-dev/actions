@@ -17,24 +17,105 @@ classifiers = [
 
 [dependency-groups]
 dev = [
-  "mypy",
-  "ruff",
+  "mypy>=1.19.0",
+  "pytest>=9.0.2",
+  "pytest-mock>=3.15.1",
+  "ruff>=0.14.8",
 ]
 
 [tool.hatch]
-build.targets.wheel.packages = []
+build.targets.wheel.packages = [ "scripts" ]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+format.docstring-code-line-length = 120
+format.docstring-code-format = true
 lint.select = [ "ALL" ]
-lint.ignore = [ "ANN", "COM812", "D", "ISC001" ]
-lint.per-file-ignores."scripts/**" = [ "S603", "S607", "T201" ]
+lint.ignore = [
+  "ANN401",
+  "ASYNC109",
+  "ASYNC110",
+  "BLE001",
+  "COM812",
+  "D100",
+  "D104",
+  "D107",
+  "D205",
+  "E501",
+  "EM",
+  "FBT",
+  "FIX",      # We allow todo and fixme comments
+  "ISC001",
+  "PD011",
+  "PGH003",
+  "PLR2004",
+  "PLW0603",
+  "S104",
+  "S110",
+  "S603",
+  "TD",       # We allow todo and fixme comments
+  "TRY",
+]
+lint.per-file-ignores."**/scripts/**" = [
+  "C901",
+  "D101",
+  "D102",
+  "D103",
+  "PERF401",
+  "PLC0415",
+  "PLR0912",
+  "PLR0915",
+  "PLW2901",
+  "S607",
+  "SIM105",
+  "T201",
+]
+lint.per-file-ignores."**/tests/**/*.*" = [
+  "A005",
+  "ANN",
+  "ARG001",
+  "ARG002",
+  "ARG005",
+  "ASYNC230",
+  "BLE001",
+  "D",
+  "N806",
+  "N815",
+  "PD",
+  "PGH003",
+  "PLC",
+  "PLR0915",
+  "PLR2004",
+  "PT006",
+  "PT007",
+  "PT013",
+  "PT017",
+  "PT031",
+  "RUF012",
+  "S",
+  "SIM117",
+  "SLF001",
+]
+lint.mccabe.max-complexity = 15
+lint.pydocstyle.convention = "google"
+lint.pylint.max-args = 10
+lint.pylint.max-branches = 15
+lint.pylint.max-returns = 10
 
 [tool.pyproject-fmt]
 keep_full_version = true
 max_supported_python = "3.14"
 
 [tool.mypy]
-strict = true
 python_version = "3.10"
+disable_error_code = [ "import-untyped" ]
+explicit_package_bases = true
+implicit_reexport = false
+show_error_codes = true
+strict = true
+namespace_packages = true
+
+[tool.pytest]
+ini_options.testpaths = [ "tests" ]
+ini_options.norecursedirs = [ "dist", "build", "*.egg" ]

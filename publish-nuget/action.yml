@@ -31,4 +31,4 @@ runs:
         INPUT_SOURCE: ${{ inputs.source }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        ${{ github.action_path }}/scripts/publish.sh
+        python3 ${{ github.action_path }}/scripts/publish.py

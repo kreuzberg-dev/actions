@@ -1,0 +1,66 @@
+name: Check Package Registries
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to check (without v prefix)"
+        required: true
+        type: string
+      registries:
+        description: >
+          JSON array of registry check configs. Each object must have:
+          - name: unique identifier for this check (used in output keys)
+          - registry: registry type (pypi, npm, cratesio, nuget, rubygems, hex, maven, packagist, homebrew, github-release)
+          - package: package name to check
+          Optional fields:
+          - extra-packages: newline-separated key=package pairs for checking additional packages
+          - tap-repo: Homebrew tap repository (required for homebrew registry)
+          - tag: GitHub release tag (for github-release registry, defaults to v{version})
+          - assets: required release assets (for github-release)
+          - asset-prefix: asset name prefix (for github-release)
+          - repo: GitHub repo (for github-release)
+        required: true
+        type: string
+    outputs:
+      results:
+        description: "JSON object mapping check names to boolean exists values"
+        value: ${{ jobs.aggregate.outputs.results }}
+
+jobs:
+  check:
+    name: Check ${{ matrix.check.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ${{ fromJson(inputs.registries) }}
+    outputs:
+      result: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check registry
+        id: check
+        uses: kreuzberg-dev/actions/check-registry@v1
+        with:
+          registry: ${{ matrix.check.registry }}
+          package: ${{ matrix.check.package }}
+          version: ${{ inputs.version }}
+          extra-packages: ${{ matrix.check.extra-packages || '' }}
+          tap-repo: ${{ matrix.check.tap-repo || '' }}
+          tag: ${{ matrix.check.tag || '' }}
+          assets: ${{ matrix.check.assets || '' }}
+          asset-prefix: ${{ matrix.check.asset-prefix || '' }}
+          repo: ${{ matrix.check.repo || '' }}
+
+  aggregate:
+    name: Aggregate registry results
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      results: ${{ steps.aggregate.outputs.results }}
+    steps:
+      - name: Aggregate check results
+        id: aggregate
+        run: |
+          echo "results=${{ toJson(needs.check.outputs) }}" >> "$GITHUB_OUTPUT"

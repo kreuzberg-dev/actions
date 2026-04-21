@@ -1,0 +1,39 @@
+name: Publish to PyPI
+description: Publish Python packages to PyPI with pre-validation
+
+inputs:
+  packages-dir:
+    description: "Directory containing wheel and sdist files"
+    required: true
+  dry-run:
+    description: "Perform a dry run without publishing"
+    required: false
+    default: "false"
+
+outputs:
+  published:
+    description: "Whether packages were published"
+    value: ${{ steps.publish.outputs.published }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate packages
+      id: validate
+      shell: bash
+      env:
+        INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: python3 "${{ github.action_path }}/scripts/publish.py"
+
+    - name: Publish to PyPI
+      if: inputs.dry-run != 'true'
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: ${{ inputs.packages-dir }}
+        skip-existing: true
+
+    - name: Set output
+      id: publish
+      shell: bash
+      run: echo "published=${{ inputs.dry-run != 'true' }}" >> "$GITHUB_OUTPUT"

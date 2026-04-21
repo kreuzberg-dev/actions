@@ -1,0 +1,111 @@
+name: Prepare Release Metadata
+description: Extract and validate release metadata from workflow events
+inputs:
+  available-targets:
+    description: "Comma-separated list of available release targets for this repo"
+    required: false
+    default: "python,node,ruby,cli,crates,docker,homebrew,java,csharp,go,wasm,php,elixir,r,c_ffi"
+outputs:
+  tag:
+    description: "Git tag (e.g., v4.3.6)"
+    value: ${{ steps.prepare.outputs.tag }}
+  version:
+    description: "Semantic version without v prefix"
+    value: ${{ steps.prepare.outputs.version }}
+  npm_tag:
+    description: "npm dist-tag (latest or next)"
+    value: ${{ steps.prepare.outputs.npm_tag }}
+  ref:
+    description: "Full git ref"
+    value: ${{ steps.prepare.outputs.ref }}
+  checkout_ref:
+    description: "Ref to use for git checkout"
+    value: ${{ steps.prepare.outputs.checkout_ref }}
+  target_sha:
+    description: "Specific SHA to checkout (empty if using ref)"
+    value: ${{ steps.prepare.outputs.target_sha }}
+  matrix_ref:
+    description: "Short ref for build matrix context"
+    value: ${{ steps.prepare.outputs.matrix_ref }}
+  is_tag:
+    description: "Whether ref is a tag"
+    value: ${{ steps.prepare.outputs.is_tag }}
+  dry_run:
+    description: "Whether this is a dry run"
+    value: ${{ steps.prepare.outputs.dry_run }}
+  force_republish:
+    description: "Whether to force republish"
+    value: ${{ steps.prepare.outputs.force_republish }}
+  release_targets:
+    description: "Comma-separated list of enabled targets (or 'all'/'none')"
+    value: ${{ steps.prepare.outputs.release_targets }}
+  release_any:
+    description: "Whether any target is enabled"
+    value: ${{ steps.prepare.outputs.release_any }}
+  release_python:
+    description: "Whether the python target is enabled"
+    value: ${{ steps.prepare.outputs.release_python }}
+  release_node:
+    description: "Whether the node target is enabled"
+    value: ${{ steps.prepare.outputs.release_node }}
+  release_ruby:
+    description: "Whether the ruby target is enabled"
+    value: ${{ steps.prepare.outputs.release_ruby }}
+  release_cli:
+    description: "Whether the cli target is enabled"
+    value: ${{ steps.prepare.outputs.release_cli }}
+  release_crates:
+    description: "Whether the crates target is enabled"
+    value: ${{ steps.prepare.outputs.release_crates }}
+  release_docker:
+    description: "Whether the docker target is enabled"
+    value: ${{ steps.prepare.outputs.release_docker }}
+  release_homebrew:
+    description: "Whether the homebrew target is enabled"
+    value: ${{ steps.prepare.outputs.release_homebrew }}
+  release_java:
+    description: "Whether the java target is enabled"
+    value: ${{ steps.prepare.outputs.release_java }}
+  release_csharp:
+    description: "Whether the csharp target is enabled"
+    value: ${{ steps.prepare.outputs.release_csharp }}
+  release_go:
+    description: "Whether the go target is enabled"
+    value: ${{ steps.prepare.outputs.release_go }}
+  release_wasm:
+    description: "Whether the wasm target is enabled"
+    value: ${{ steps.prepare.outputs.release_wasm }}
+  release_php:
+    description: "Whether the php target is enabled"
+    value: ${{ steps.prepare.outputs.release_php }}
+  release_elixir:
+    description: "Whether the elixir target is enabled"
+    value: ${{ steps.prepare.outputs.release_elixir }}
+  release_r:
+    description: "Whether the r target is enabled"
+    value: ${{ steps.prepare.outputs.release_r }}
+  release_c_ffi:
+    description: "Whether the c_ffi target is enabled"
+    value: ${{ steps.prepare.outputs.release_c_ffi }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare release metadata
+      id: prepare
+      shell: bash
+      env:
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        INPUT_TAG: ${{ inputs.tag || github.event.inputs.tag || '' }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run || github.event.inputs.dry_run || 'false' }}
+        INPUT_FORCE_REPUBLISH: ${{ inputs.force-republish || github.event.inputs.force_republish || 'false' }}
+        INPUT_REF: ${{ inputs.ref || github.event.inputs.ref || '' }}
+        INPUT_TARGETS: ${{ inputs.targets || github.event.inputs.targets || '' }}
+        EVENT_RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+        EVENT_DISPATCH_TAG: ${{ github.event.client_payload.tag || '' }}
+        EVENT_DISPATCH_DRY_RUN: ${{ github.event.client_payload.dry_run || 'false' }}
+        EVENT_DISPATCH_FORCE_REPUBLISH: ${{ github.event.client_payload.force_republish || 'false' }}
+        EVENT_DISPATCH_REF: ${{ github.event.client_payload.ref || '' }}
+        EVENT_DISPATCH_TARGETS: ${{ github.event.client_payload.targets || '' }}
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+        AVAILABLE_TARGETS: ${{ inputs.available-targets }}
+      run: python3 "${{ github.action_path }}/scripts/prepare.py"

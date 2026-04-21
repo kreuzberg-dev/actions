@@ -1,0 +1,33 @@
+name: Publish Python Package to PyPI
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: "Package name on PyPI (used for display only)"
+        required: true
+        type: string
+      python-version:
+        description: "Python version for building"
+        required: false
+        type: string
+        default: "3.10"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/${{ inputs.package-name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
