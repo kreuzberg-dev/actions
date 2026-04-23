@@ -199,11 +199,17 @@ def _upload_bottles_to_release(
 
     file_args = [str(p) for p in bottle_files]
     print(f"Uploading {len(file_args)} bottle(s) to release {tag}...")
-    subprocess.run(
+    result = subprocess.run(
         ["gh", "release", "upload", tag, *file_args, "--repo", github_repo, "--clobber"],
-        check=True,
+        capture_output=True,
+        text=True,
         timeout=300,
+        check=False,
     )
+    if result.returncode != 0:
+        print(f"Upload stdout: {result.stdout}")
+        print(f"Upload stderr: {result.stderr}")
+        result.check_returncode()
     print("Bottles uploaded successfully")
 
 
