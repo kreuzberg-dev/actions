@@ -40,13 +40,32 @@ detect_target() {
   esac
 }
 
-install_alef() {
-  local target max_attempts=3 attempt=1 wait_time=2
+# Resolve "latest" to the actual latest release tag
+resolve_version() {
+  if [[ "$version" == "latest" ]]; then
+    local tag
+    tag="$(curl --silent --fail \
+      "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest" |
+      grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
+    if [[ -z "$tag" ]]; then
+      echo "Error: could not resolve latest alef release" >&2
+      return 1
+    fi
+    echo "$tag"
+  else
+    echo "$version"
+  fi
+}
+
+# Install from a GitHub release binary
+install_from_release() {
+  local resolved_version target max_attempts=3 attempt=1 wait_time=2
+  resolved_version="$(resolve_version)"
   target="$(detect_target)"
-  local url="https://github.com/kreuzberg-dev/alef/releases/download/v${version}/alef-${target}.tar.gz"
+  local url="https://github.com/kreuzberg-dev/alef/releases/download/v${resolved_version}/alef-${target}.tar.gz"
 
   while [[ $attempt -le $max_attempts ]]; do
-    echo "Installing alef v${version} for ${target} (attempt ${attempt}/${max_attempts})..."
+    echo "Installing alef v${resolved_version} for ${target} (attempt ${attempt}/${max_attempts})..."
 
     if curl --location \
       --connect-timeout 10 \
@@ -57,7 +76,7 @@ install_alef() {
       "$url" | tar xz -C "$alef_bin_dir"; then
 
       if [[ -x "$alef_bin_dir/alef" ]]; then
-        echo "Alef installation successful"
+        echo "Alef v${resolved_version} installed successfully"
         return 0
       else
         echo "Error: alef binary not found at $alef_bin_dir/alef"
@@ -79,8 +98,24 @@ install_alef() {
   return 1
 }
 
+# Install from main branch via cargo install
+install_from_main() {
+  echo "Installing alef from main branch via cargo install..."
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "Error: cargo not found — required for installing from main branch" >&2
+    return 1
+  fi
+  CARGO_INSTALL_ROOT="$alef_bin_dir/.." \
+    cargo install --git https://github.com/kreuzberg-dev/alef --locked --bin alef
+  echo "Alef installed from main branch"
+}
+
 if ! command -v alef >/dev/null 2>&1; then
-  install_alef
+  if [[ "$version" == "main" ]]; then
+    install_from_main
+  else
+    install_from_release
+  fi
 else
   echo "Alef already installed: $(command -v alef)"
 fi

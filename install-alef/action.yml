@@ -2,9 +2,11 @@ name: Install Alef
 description: Install the Alef polyglot binding generator CLI
 inputs:
   version:
-    description: Alef CLI version to install
+    description: >
+      Alef version to install. Use a semver tag (e.g. "0.7.1"), "latest" for the
+      most recent published release, or "main" to build from the main branch.
     required: false
-    default: "0.7.1"
+    default: "latest"
 runs:
   using: composite
   steps:
