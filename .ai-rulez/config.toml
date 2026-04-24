@@ -6,7 +6,7 @@ name = 'actions'
 description = 'Shared GitHub Actions composite actions for kreuzberg-dev CI/CD pipelines'
 gitignore = true
 presets = ['claude', 'codex', 'copilot', 'cursor', 'antigravity']
-builtins = ['security', 'git-workflow', 'code-quality', 'token-efficiency', 'default-commands']
+builtins = ['cicd', 'default-commands']
 
 [[includes]]
 name = 'kreuzberg-core'
