@@ -73,7 +73,7 @@ install_from_release() {
       --retry 2 \
       --retry-delay 1 \
       --fail \
-      "$url" | tar xz -C "$alef_bin_dir"; then
+      "$url" | tar xz --strip-components=1 -C "$alef_bin_dir"; then
 
       if [[ -x "$alef_bin_dir/alef" ]]; then
         echo "Alef v${resolved_version} installed successfully"
