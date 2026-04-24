@@ -1,0 +1,21 @@
+# AI-Rulez Configuration (migrated to V4 TOML format)
+# Documentation: https://github.com/Goldziher/ai-rulez
+
+version = '4.0'
+name = 'actions'
+description = 'Shared GitHub Actions composite actions for kreuzberg-dev CI/CD pipelines'
+gitignore = true
+presets = ['claude', 'codex', 'copilot', 'cursor', 'antigravity']
+builtins = ['security', 'git-workflow', 'code-quality', 'token-efficiency', 'default-commands']
+
+[[includes]]
+name = 'kreuzberg-core'
+source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+path = 'modules/core'
+merge_strategy = 'local-override'
+
+[[includes]]
+name = 'kreuzberg-cicd'
+source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+path = 'modules/cicd'
+merge_strategy = 'local-override'
