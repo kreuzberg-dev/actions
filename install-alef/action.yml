@@ -1,0 +1,21 @@
+name: Install Alef
+description: Install the Alef polyglot binding generator CLI
+inputs:
+  version:
+    description: Alef CLI version to install
+    required: false
+    default: "0.7.1"
+runs:
+  using: composite
+  steps:
+    - name: Install Alef (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        "${{ github.action_path }}/scripts/unix.sh" "${{ inputs.version }}"
+
+    - name: Install Alef (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        & '${{ github.action_path }}/scripts/windows.ps1' '${{ inputs.version }}'
