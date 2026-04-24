@@ -1,0 +1,23 @@
+name: Setup Elixir
+description: Install Elixir and OTP with Hex/Rebar
+inputs:
+  elixir-version:
+    description: Elixir version to install
+    required: false
+    default: "1.19"
+  otp-version:
+    description: OTP version to install
+    required: false
+    default: "28"
+runs:
+  using: composite
+  steps:
+    - name: Setup Beam
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ inputs.elixir-version }}
+        otp-version: ${{ inputs.otp-version }}
+
+    - name: Install Hex and Rebar
+      shell: bash
+      run: mix local.hex --force && mix local.rebar --force
