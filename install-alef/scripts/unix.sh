@@ -40,9 +40,30 @@ detect_target() {
   esac
 }
 
+# Read pinned version from alef.toml if present
+read_pinned_version() {
+  if [[ -f "alef.toml" ]]; then
+    local pinned
+    pinned="$(grep -A5 '^\[alef\]' alef.toml | grep '^version' | sed -E 's/.*=\s*"([^"]+)".*/\1/' | head -1)"
+    if [[ -n "$pinned" ]]; then
+      echo "$pinned"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # Resolve "latest" to the actual latest release tag
 resolve_version() {
   if [[ "$version" == "latest" ]]; then
+    # Check alef.toml for a pinned version first
+    local pinned
+    if pinned="$(read_pinned_version)"; then
+      echo "Using pinned version from alef.toml: $pinned" >&2
+      echo "$pinned"
+      return 0
+    fi
+
     local tag
     tag="$(curl --silent --fail \
       "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest" |

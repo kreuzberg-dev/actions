@@ -27,11 +27,29 @@ if ($alefVersion -eq "main") {
   exit 0
 }
 
-# Resolve "latest" to actual version
+# Resolve "latest" — check alef.toml for a pinned version first, then fall back to GitHub
 if ($alefVersion -eq "latest") {
-  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest"
-  $alefVersion = $release.tag_name -replace '^v', ''
-  Write-Output "Resolved latest version: $alefVersion"
+  if (Test-Path "alef.toml") {
+    # Read lines after [alef] header, extract version before next section
+    $inAlefSection = $false
+    $pinned = $null
+    foreach ($line in Get-Content "alef.toml") {
+      if ($line -match '^\[alef\]') { $inAlefSection = $true; continue }
+      if ($inAlefSection -and $line -match '^\[') { break }
+      if ($inAlefSection -and $line -match '^\s*version\s*=\s*"([^"]+)"') {
+        $pinned = $Matches[1]; break
+      }
+    }
+    if ($pinned) {
+      Write-Output "Using pinned version from alef.toml: $pinned"
+      $alefVersion = $pinned
+    }
+  }
+  if ($alefVersion -eq "latest") {
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest"
+    $alefVersion = $release.tag_name -replace '^v', ''
+    Write-Output "Resolved latest version: $alefVersion"
+  }
 }
 
 $zipPath = "$alefBinDir\alef.zip"
