@@ -40,11 +40,11 @@ detect_target() {
   esac
 }
 
-# Read pinned version from alef.toml if present
+# Read pinned version from top-level `version` key in alef.toml
 read_pinned_version() {
   if [[ -f "alef.toml" ]]; then
     local pinned
-    pinned="$(grep -A5 '^\[alef\]' alef.toml | grep '^version' | sed -E 's/.*=\s*"([^"]+)".*/\1/' | head -1)"
+    pinned="$(sed -n '/^\[/q; s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' alef.toml | head -1)"
     if [[ -n "$pinned" ]]; then
       echo "$pinned"
       return 0

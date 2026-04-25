@@ -30,13 +30,11 @@ if ($alefVersion -eq "main") {
 # Resolve "latest" — check alef.toml for a pinned version first, then fall back to GitHub
 if ($alefVersion -eq "latest") {
   if (Test-Path "alef.toml") {
-    # Read lines after [alef] header, extract version before next section
-    $inAlefSection = $false
+    # Read top-level version key (before any [section] header)
     $pinned = $null
     foreach ($line in Get-Content "alef.toml") {
-      if ($line -match '^\[alef\]') { $inAlefSection = $true; continue }
-      if ($inAlefSection -and $line -match '^\[') { break }
-      if ($inAlefSection -and $line -match '^\s*version\s*=\s*"([^"]+)"') {
+      if ($line -match '^\[') { break }
+      if ($line -match '^\s*version\s*=\s*"([^"]+)"') {
         $pinned = $Matches[1]; break
       }
     }
