@@ -63,6 +63,13 @@ runs:
       shell: bash
       run: ${{ inputs.install-command }}
 
+    - name: Add venv bin to PATH
+      shell: bash
+      run: |
+        if [ -d ".venv/bin" ]; then
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+        fi
+
     - name: Preserve PKG_CONFIG_PATH for OpenSSL
       if: inputs.preserve-pkg-config-path == 'true'
       shell: bash
