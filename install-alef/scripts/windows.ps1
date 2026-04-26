@@ -71,7 +71,22 @@ try {
   Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
 }
 
-Expand-Archive -Path $zipPath -DestinationPath $alefBinDir -Force
+$extractDir = "$alefBinDir\extract"
+if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 Remove-Item $zipPath
+
+$found = Get-ChildItem -Path $extractDir -Recurse -Filter "alef.exe" | Select-Object -First 1
+if (-not $found) {
+  throw "alef.exe not found in extracted archive at $extractDir"
+}
+Move-Item -Force -Path $found.FullName -Destination $alefExe
+Remove-Item -Recurse -Force $extractDir
+
+if (-not (Test-Path $alefExe)) {
+  throw "Failed to install alef.exe at $alefExe"
+}
+Write-Output "Alef installed at $alefExe"
 
 "$alefBinDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append

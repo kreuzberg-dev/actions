@@ -62,6 +62,8 @@ jobs:
     steps:
       - name: Aggregate check results
         id: aggregate
+        env:
+          CHECK_OUTPUTS: ${{ toJson(needs.check.outputs) }}
         run: |
-          RESULTS=$(echo '${{ toJson(needs.check.outputs) }}' | jq -c .)
+          RESULTS=$(printf '%s' "$CHECK_OUTPUTS" | jq -c .)
           echo "results=$RESULTS" >> "$GITHUB_OUTPUT"
