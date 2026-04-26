@@ -51,7 +51,7 @@ runs:
         CRATE_NAME: ${{ inputs.crate-name }}
         MANIFEST_PATH: ${{ inputs.manifest-path }}
       run: |
-        python3 ${{ github.action_path }}/scripts/build.py --validate-only
+        python3 "$GITHUB_ACTION_PATH/scripts/build.py" --validate-only
 
     - name: Build FFI library
       id: build
@@ -66,7 +66,7 @@ runs:
         MANIFEST_PATH: ${{ inputs.manifest-path }}
         DISABLE_SCCACHE: ${{ inputs.disable-sccache }}
       run: |
-        python3 ${{ github.action_path }}/scripts/build.py
+        python3 "$GITHUB_ACTION_PATH/scripts/build.py"
 
     - name: Verify build artifacts
       shell: bash
@@ -74,4 +74,4 @@ runs:
         LIBRARY_PATH: ${{ steps.build.outputs.library-path }}
         TARGET_DIR: ${{ steps.build.outputs.target-dir }}
       run: |
-        python3 ${{ github.action_path }}/scripts/verify.py
+        python3 "$GITHUB_ACTION_PATH/scripts/verify.py"
