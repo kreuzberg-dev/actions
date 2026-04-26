@@ -21,9 +21,9 @@ if ($alefVersion -eq "main") {
   if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "cargo not found - required for installing from main branch"
   }
-  $env:CARGO_INSTALL_ROOT = "$alefBinDir\.."
+  $env:CARGO_INSTALL_ROOT = $alefBinDir
   cargo install --git https://github.com/kreuzberg-dev/alef --locked --bin alef
-  "$alefBinDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+  "$alefBinDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
   exit 0
 }
 

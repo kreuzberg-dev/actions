@@ -63,4 +63,5 @@ jobs:
       - name: Aggregate check results
         id: aggregate
         run: |
-          echo "results=${{ toJson(needs.check.outputs) }}" >> "$GITHUB_OUTPUT"
+          RESULTS=$(echo '${{ toJson(needs.check.outputs) }}' | jq -c .)
+          echo "results=$RESULTS" >> "$GITHUB_OUTPUT"

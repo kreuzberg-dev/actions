@@ -3,6 +3,9 @@ description: >
   Update a Homebrew formula in a tap repository with bottle hashes
   from a GitHub release. Credentials for pushing to the tap repo
   must be pre-configured by the calling workflow.
+  The calling workflow must grant `contents: write` permission so that
+  bottle artifacts can be uploaded to the GitHub release via `gh release upload`.
+  Example: `permissions: { contents: write }`
 
 inputs:
   bottles-dir:
@@ -36,7 +39,10 @@ inputs:
     required: false
     default: "false"
   token:
-    description: "GitHub token for uploading bottles to the release"
+    description: >
+      GitHub token for uploading bottles to the release via `gh release upload`.
+      Must have `contents: write` permission. Defaults to the workflow token;
+      callers must ensure the workflow sets `permissions: { contents: write }`.
     required: false
     default: ${{ github.token }}
 
