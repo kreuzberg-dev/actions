@@ -213,6 +213,8 @@ def _run_cargo_build(cargo_args: list[str], build_env: dict[str, str]) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=build_env,
         ) as proc:
             assert proc.stdout is not None  # noqa: S101
