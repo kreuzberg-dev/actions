@@ -230,7 +230,7 @@ def _run_cargo_build(cargo_args: list[str], build_env: dict[str, str]) -> None:
                 log_lines.append(line)
 
         log_content = "".join(log_lines)
-        log_path.write_text(log_content)
+        log_path.write_text(log_content, encoding="utf-8")
     finally:
         log_path.unlink(missing_ok=True)
 
