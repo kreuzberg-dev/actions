@@ -9,6 +9,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Cargo and rustc emit utf-8 (build-script author names, diagnostics with non-ascii
+# identifiers, etc.). On Windows runners sys.stdout/stderr default to cp1252 which
+# crashes on the first non-latin1 byte we forward via print().
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 _TAIL_LINES = 50
 
 
