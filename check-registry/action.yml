@@ -71,6 +71,8 @@ runs:
         TAP_REPO: ${{ inputs.tap-repo }}
         REPO_INPUT: ${{ inputs.repo }}
         SOURCE: ${{ inputs.source }}
+        ASSET_PREFIX: ${{ inputs.asset-prefix }}
+        REQUIRED_ASSETS: ${{ inputs.assets }}
       run: |
         set -euo pipefail
 
@@ -85,6 +87,12 @@ runs:
           fi
           if [[ -n "${SOURCE}" ]]; then
             args+=(--source "${SOURCE}")
+          fi
+          if [[ -n "${ASSET_PREFIX}" ]]; then
+            args+=(--asset-prefix "${ASSET_PREFIX}")
+          fi
+          if [[ -n "${REQUIRED_ASSETS}" ]]; then
+            args+=(--required-assets "${REQUIRED_ASSETS}")
           fi
           alef "${args[@]}"
         }
