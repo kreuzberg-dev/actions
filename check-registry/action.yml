@@ -55,6 +55,27 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Fetch alef.toml so install-alef can read the pin
+      # Many publish jobs reach this action without first running
+      # actions/checkout. Without alef.toml in cwd, install-alef falls
+      # back to the GitHub "latest" release tag — which 404s during the
+      # window between an alef release being tagged and its publish
+      # workflow finishing the binary upload. Pull just alef.toml from
+      # the calling repo's HEAD so install-alef sees the pinned version.
+      if: inputs.alef-version == 'latest'
+      shell: bash
+      run: |
+        if [[ ! -f alef.toml ]]; then
+          if curl --silent --fail --location \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/alef.toml" \
+              -o alef.toml; then
+            echo "Fetched alef.toml from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
+          else
+            rm -f alef.toml
+            echo "No alef.toml at ${GITHUB_REPOSITORY}@${GITHUB_SHA} — install-alef will resolve latest from GitHub"
+          fi
+        fi
+
     - name: Install alef
       uses: kreuzberg-dev/actions/install-alef@v1
       with:
