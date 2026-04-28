@@ -1,10 +1,17 @@
 name: Prepare Release Metadata
-description: Extract and validate release metadata from workflow events
+description: |
+  Extract and validate release metadata from a workflow event. Backed by
+  `alef release-metadata`. Reads alef.toml in the consuming repo to discover
+  the canonical target list.
 inputs:
   available-targets:
-    description: "Comma-separated list of available release targets for this repo"
+    description: "Comma-separated list of available release targets (default: 'all')."
     required: false
-    default: "python,node,ruby,cli,crates,docker,homebrew,java,csharp,go,wasm,php,elixir,r,c_ffi"
+    default: "all"
+  alef-version:
+    description: "Alef CLI version to install (semver, 'latest', or 'main')."
+    required: false
+    default: "latest"
 outputs:
   tag:
     description: "Git tag (e.g., v4.3.6)"
@@ -30,6 +37,9 @@ outputs:
   is_tag:
     description: "Whether ref is a tag"
     value: ${{ steps.prepare.outputs.is_tag }}
+  is_prerelease:
+    description: "Whether the version is a prerelease (-rc/-alpha/-beta/-pre)"
+    value: ${{ steps.prepare.outputs.is_prerelease }}
   dry_run:
     description: "Whether this is a dry run"
     value: ${{ steps.prepare.outputs.dry_run }}
@@ -43,58 +53,63 @@ outputs:
     description: "Whether any target is enabled"
     value: ${{ steps.prepare.outputs.release_any }}
   release_python:
-    description: "Whether the python target is enabled"
     value: ${{ steps.prepare.outputs.release_python }}
+    description: "Whether the python target is enabled"
   release_node:
-    description: "Whether the node target is enabled"
     value: ${{ steps.prepare.outputs.release_node }}
+    description: "Whether the node target is enabled"
   release_ruby:
-    description: "Whether the ruby target is enabled"
     value: ${{ steps.prepare.outputs.release_ruby }}
+    description: "Whether the ruby target is enabled"
   release_cli:
-    description: "Whether the cli target is enabled"
     value: ${{ steps.prepare.outputs.release_cli }}
+    description: "Whether the cli target is enabled"
   release_crates:
-    description: "Whether the crates target is enabled"
     value: ${{ steps.prepare.outputs.release_crates }}
+    description: "Whether the crates target is enabled"
   release_docker:
-    description: "Whether the docker target is enabled"
     value: ${{ steps.prepare.outputs.release_docker }}
+    description: "Whether the docker target is enabled"
   release_homebrew:
-    description: "Whether the homebrew target is enabled"
     value: ${{ steps.prepare.outputs.release_homebrew }}
+    description: "Whether the homebrew target is enabled"
   release_java:
-    description: "Whether the java target is enabled"
     value: ${{ steps.prepare.outputs.release_java }}
+    description: "Whether the java target is enabled"
   release_csharp:
-    description: "Whether the csharp target is enabled"
     value: ${{ steps.prepare.outputs.release_csharp }}
+    description: "Whether the csharp target is enabled"
   release_go:
-    description: "Whether the go target is enabled"
     value: ${{ steps.prepare.outputs.release_go }}
+    description: "Whether the go target is enabled"
   release_wasm:
-    description: "Whether the wasm target is enabled"
     value: ${{ steps.prepare.outputs.release_wasm }}
+    description: "Whether the wasm target is enabled"
   release_php:
-    description: "Whether the php target is enabled"
     value: ${{ steps.prepare.outputs.release_php }}
+    description: "Whether the php target is enabled"
   release_elixir:
-    description: "Whether the elixir target is enabled"
     value: ${{ steps.prepare.outputs.release_elixir }}
+    description: "Whether the elixir target is enabled"
   release_r:
-    description: "Whether the r target is enabled"
     value: ${{ steps.prepare.outputs.release_r }}
+    description: "Whether the r target is enabled"
   release_c_ffi:
-    description: "Whether the c_ffi target is enabled"
     value: ${{ steps.prepare.outputs.release_c_ffi }}
+    description: "Whether the c_ffi target is enabled"
 runs:
   using: composite
   steps:
-    - name: Prepare release metadata
+    - name: Install alef
+      uses: kreuzberg-dev/actions/install-alef@v1
+      with:
+        version: ${{ inputs.alef-version }}
+
+    - name: Resolve event metadata
       id: prepare
       shell: bash
       env:
-        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        EVENT_NAME: ${{ github.event_name }}
         INPUT_TAG: ${{ inputs.tag || github.event.inputs.tag || '' }}
         INPUT_DRY_RUN: ${{ inputs.dry-run || github.event.inputs.dry_run || 'false' }}
         INPUT_FORCE_REPUBLISH: ${{ inputs.force-republish || github.event.inputs.force_republish || 'false' }}
@@ -108,4 +123,65 @@ runs:
         EVENT_DISPATCH_TARGETS: ${{ github.event.client_payload.targets || '' }}
         GITHUB_REF_NAME: ${{ github.ref_name }}
         AVAILABLE_TARGETS: ${{ inputs.available-targets }}
-      run: python3 "${{ github.action_path }}/scripts/prepare.py"
+      run: |
+        set -euo pipefail
+
+        # Resolve tag, ref, dry-run, force-republish, targets per event type.
+        # Mirrors the dispatch logic in kreuzberg's
+        # validate-and-compute-release-metadata.sh so consuming workflows that
+        # rely on the prior behavior keep working.
+        case "${EVENT_NAME}" in
+        workflow_dispatch)
+          tag="${INPUT_TAG}"
+          dry_run="${INPUT_DRY_RUN}"
+          force_republish="${INPUT_FORCE_REPUBLISH}"
+          ref_input="${INPUT_REF}"
+          targets="${INPUT_TARGETS}"
+          ;;
+        release)
+          tag="${EVENT_RELEASE_TAG}"
+          dry_run="false"
+          force_republish="false"
+          ref_input="refs/tags/${EVENT_RELEASE_TAG}"
+          targets=""
+          ;;
+        repository_dispatch)
+          tag="${EVENT_DISPATCH_TAG}"
+          dry_run="${EVENT_DISPATCH_DRY_RUN}"
+          force_republish="${EVENT_DISPATCH_FORCE_REPUBLISH}"
+          ref_input="${EVENT_DISPATCH_REF}"
+          targets="${EVENT_DISPATCH_TARGETS}"
+          ;;
+        *)
+          tag="${GITHUB_REF_NAME}"
+          dry_run="false"
+          force_republish="false"
+          ref_input=""
+          targets=""
+          ;;
+        esac
+
+        if [[ -z "${tag}" ]]; then
+          echo "::error::release tag could not be determined from event=${EVENT_NAME}" >&2
+          exit 1
+        fi
+
+        targets="${targets:-${AVAILABLE_TARGETS:-all}}"
+
+        # Build alef args.
+        args=(release-metadata --tag "${tag}" --targets "${targets}" --event "${EVENT_NAME}" --json)
+        if [[ -n "${ref_input}" ]]; then
+          args+=(--git-ref "${ref_input}")
+        fi
+        if [[ "${dry_run}" == "true" ]]; then
+          args+=(--dry-run)
+        fi
+        if [[ "${force_republish}" == "true" ]]; then
+          args+=(--force-republish)
+        fi
+
+        json=$(alef "${args[@]}")
+        echo "${json}" | jq .
+
+        # Emit each top-level field as a GITHUB_OUTPUT line.
+        echo "${json}" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >>"$GITHUB_OUTPUT"

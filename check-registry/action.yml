@@ -1,11 +1,12 @@
 name: Check Registry for Existing Version
-description: >
+description: |
   Query a package registry to determine if a specific version already exists.
-  Supports: pypi, npm, rubygems, hex, maven, nuget, cratesio, packagist, homebrew, github-release.
-
+  Backed by `alef check-registry`. Supports: pypi, npm, wasm, rubygems, hex,
+  maven (groupId:artifactId), nuget, cratesio, packagist, homebrew (tap),
+  github-release.
 inputs:
   registry:
-    description: "Registry to check: pypi | npm | rubygems | hex | maven | nuget | cratesio | packagist | homebrew | github-release"
+    description: "Registry to check"
     required: true
   package:
     description: "Package name (e.g. 'kreuzberg', '@kreuzberg/node-linux-x64-gnu', 'dev.kreuzberg:kreuzberg')"
@@ -16,52 +17,94 @@ inputs:
   extra-packages:
     description: |
       Additional packages to check (one per line, format: output_key=package_name).
-      Example:
-        wasm_exists=@kreuzberg/html-to-markdown-wasm
-        ts_exists=@kreuzberg/html-to-markdown
+      Each is queried with the same registry and version.
     required: false
     default: ""
   tap-repo:
-    description: "Homebrew tap repository (e.g. kreuzberg-dev/homebrew-tap). Required for homebrew registry."
+    description: "Homebrew tap repository (owner/repo). Required for homebrew."
     required: false
     default: ""
   tag:
-    description: "GitHub release tag (for github-release registry). Defaults to v{version}."
+    description: "GitHub release tag (defaults to v{version}) — github-release only."
     required: false
     default: ""
   asset-prefix:
-    description: "Asset name prefix to match (for github-release registry)."
+    description: "Asset name prefix to match (forwarded to alef when supported) — github-release only."
     required: false
     default: ""
   assets:
-    description: "Comma-separated list of required asset names (for github-release registry)."
+    description: "Comma-separated list of required asset names — github-release only."
     required: false
     default: ""
   repo:
-    description: "GitHub repository (owner/repo) for github-release registry."
+    description: "GitHub repository (owner/repo) — github-release only."
     required: false
     default: ""
-
+  source:
+    description: "NuGet source URL (defaults to https://api.nuget.org)."
+    required: false
+    default: ""
+  alef-version:
+    description: "Alef CLI version to install (semver, 'latest', or 'main')."
+    required: false
+    default: "latest"
 outputs:
   exists:
-    description: "Whether the primary package version exists (true/false)"
+    description: "Whether the primary package version exists (true/false)."
     value: ${{ steps.check.outputs.exists }}
-
 runs:
   using: composite
   steps:
+    - name: Install alef
+      uses: kreuzberg-dev/actions/install-alef@v1
+      with:
+        version: ${{ inputs.alef-version }}
+
     - name: Check registry
       id: check
       shell: bash
       env:
-        INPUT_REGISTRY: ${{ inputs.registry }}
-        INPUT_PACKAGE: ${{ inputs.package }}
-        INPUT_VERSION: ${{ inputs.version }}
-        INPUT_EXTRA_PACKAGES: ${{ inputs.extra-packages }}
-        INPUT_TAP_REPO: ${{ inputs.tap-repo }}
-        INPUT_TAG: ${{ inputs.tag }}
-        INPUT_ASSET_PREFIX: ${{ inputs.asset-prefix }}
-        INPUT_ASSETS: ${{ inputs.assets }}
-        INPUT_REPO: ${{ inputs.repo }}
+        REGISTRY: ${{ inputs.registry }}
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ inputs.version }}
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        TAP_REPO: ${{ inputs.tap-repo }}
+        REPO_INPUT: ${{ inputs.repo }}
+        SOURCE: ${{ inputs.source }}
       run: |
-        python3 ${{ github.action_path }}/scripts/check.py
+        set -euo pipefail
+
+        run_alef_check() {
+          local pkg="$1"
+          local args=(check-registry --registry "${REGISTRY}" --package "${pkg}" --version "${VERSION}" --json)
+          if [[ -n "${TAP_REPO}" ]]; then
+            args+=(--tap-repo "${TAP_REPO}")
+          fi
+          if [[ -n "${REPO_INPUT}" ]]; then
+            args+=(--repo "${REPO_INPUT}")
+          fi
+          if [[ -n "${SOURCE}" ]]; then
+            args+=(--source "${SOURCE}")
+          fi
+          alef "${args[@]}"
+        }
+
+        # Primary package check.
+        primary_json=$(run_alef_check "${PACKAGE}")
+        primary_exists=$(echo "${primary_json}" | jq -r '.exists // false')
+        echo "exists=${primary_exists}" >>"$GITHUB_OUTPUT"
+        echo "Primary check: ${PACKAGE}@${VERSION} on ${REGISTRY} -> exists=${primary_exists}"
+
+        # Extra packages: same registry/version, emit per-line output keys.
+        if [[ -n "${EXTRA_PACKAGES}" ]]; then
+          while IFS= read -r line; do
+            line="$(echo "${line}" | xargs)"
+            [[ -z "${line}" ]] && continue
+            output_key="${line%%=*}"
+            extra_pkg="${line#*=}"
+            extra_json=$(run_alef_check "${extra_pkg}")
+            extra_exists=$(echo "${extra_json}" | jq -r '.exists // false')
+            echo "${output_key}=${extra_exists}" >>"$GITHUB_OUTPUT"
+            echo "Extra check (${output_key}): ${extra_pkg}@${VERSION} on ${REGISTRY} -> exists=${extra_exists}"
+          done <<<"${EXTRA_PACKAGES}"
+        fi

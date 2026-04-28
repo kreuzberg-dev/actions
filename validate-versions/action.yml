@@ -1,26 +1,58 @@
 name: Validate Version Consistency
-description: Check that all package manifests declare the same version
+description: |
+  Check that every language manifest declares the same version as the canonical
+  Cargo.toml workspace version. Manifest discovery is driven by alef.toml, so
+  the consuming repo must have one.
 inputs:
   version:
-    description: "Expected version (without v prefix)"
-    required: true
+    description: "Expected version (without v prefix). Optional — alef reads the canonical version from Cargo.toml."
+    required: false
+    default: ""
   manifest-paths:
-    description: "Newline-separated type=path pairs (e.g., cargo=Cargo.toml)"
-    required: true
+    description: "Deprecated. Manifest discovery is now driven by alef.toml. Kept for backward-compatibility; ignored."
+    required: false
+    default: ""
+  alef-version:
+    description: "Alef CLI version to install (semver, 'latest', or 'main')."
+    required: false
+    default: "latest"
 outputs:
   valid:
-    description: "Whether all versions match"
+    description: "Whether all versions match (true/false)."
     value: ${{ steps.validate.outputs.valid }}
   mismatches:
-    description: "JSON array of mismatch descriptions"
+    description: "JSON array describing each mismatch."
     value: ${{ steps.validate.outputs.mismatches }}
 runs:
   using: composite
   steps:
+    - name: Install alef
+      uses: kreuzberg-dev/actions/install-alef@v1
+      with:
+        version: ${{ inputs.alef-version }}
+
     - name: Validate versions
       id: validate
       shell: bash
       env:
         EXPECTED_VERSION: ${{ inputs.version }}
-        MANIFEST_PATHS: ${{ inputs.manifest-paths }}
-      run: python3 "${{ github.action_path }}/scripts/validate.py"
+      run: |
+        set -euo pipefail
+        # alef reads alef.toml in the working directory and compares all
+        # configured language manifests against the canonical Cargo.toml.
+        json=$(alef validate versions --json 2>/dev/null || true)
+        if [[ -z "${json}" ]]; then
+          echo "alef validate versions produced no JSON output" >&2
+          echo "valid=false" >>"$GITHUB_OUTPUT"
+          echo 'mismatches=[{"reason":"alef invocation failed"}]' >>"$GITHUB_OUTPUT"
+          exit 1
+        fi
+        valid=$(echo "${json}" | jq -r '.ok // false')
+        mismatches=$(echo "${json}" | jq -c '[.checks[] | select(.ok == false)]')
+        echo "valid=${valid}" >>"$GITHUB_OUTPUT"
+        echo "mismatches=${mismatches}" >>"$GITHUB_OUTPUT"
+        if [[ "${valid}" != "true" ]]; then
+          echo "::error::Version mismatches detected:" >&2
+          echo "${mismatches}" | jq . >&2
+          exit 1
+        fi
