@@ -44,25 +44,9 @@ if ($alefVersion -eq "latest") {
     }
   }
   if ($alefVersion -eq "latest") {
-    # Walk back through recent releases until we find a tag with a Windows
-    # binary uploaded — covers the race window between tagging a new
-    # release and the publish workflow finishing the binary build.
-    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/kreuzberg-dev/alef/releases?per_page=10"
-    foreach ($rel in $releases) {
-      $candidate = $rel.tag_name -replace '^v', ''
-      $url = "https://github.com/kreuzberg-dev/alef/releases/download/v$candidate/alef-x86_64-pc-windows-gnu.zip"
-      try {
-        Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing | Out-Null
-        $alefVersion = $candidate
-        Write-Output "Resolved latest installable version: $alefVersion"
-        break
-      } catch {
-        Write-Output "Tag v$candidate has no Windows binary yet — trying previous release"
-      }
-    }
-    if ($alefVersion -eq "latest") {
-      throw "No recent alef release has a Windows binary"
-    }
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest"
+    $alefVersion = $release.tag_name -replace '^v', ''
+    Write-Output "Resolved latest version: $alefVersion"
   }
 }
 

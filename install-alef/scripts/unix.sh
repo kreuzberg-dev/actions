@@ -53,22 +53,13 @@ read_pinned_version() {
   return 1
 }
 
-# Check whether a tag has a downloadable binary for the current target.
-binary_exists_for_tag() {
-  local tag target url
-  tag="$1"
-  target="$(detect_target)"
-  url="https://github.com/kreuzberg-dev/alef/releases/download/v${tag}/alef-${target}.tar.gz"
-  curl --silent --fail --head --output /dev/null "$url"
-}
-
-# Resolve "latest" to the actual latest release tag.
-# If the latest tag exists but binaries are not yet uploaded (race window
-# during a fresh alef release), walk back through previous releases until
-# we find one with a downloadable binary for this target.
+# Resolve "latest" to a concrete version.
+# Order: alef.toml pin > GitHub "latest" release tag.
+# Hard-fails if the resolved tag has no binary uploaded — callers should
+# retry the workflow after the alef publish run finishes uploading
+# binaries, not silently fall back to an older release.
 resolve_version() {
   if [[ "$version" == "latest" ]]; then
-    # Check alef.toml for a pinned version first
     local pinned
     if pinned="$(read_pinned_version)"; then
       echo "Using pinned version from alef.toml: $pinned" >&2
@@ -76,27 +67,15 @@ resolve_version() {
       return 0
     fi
 
-    local tags
-    tags="$(curl --silent --fail \
-      "https://api.github.com/repos/kreuzberg-dev/alef/releases?per_page=10" |
+    local tag
+    tag="$(curl --silent --fail \
+      "https://api.github.com/repos/kreuzberg-dev/alef/releases/latest" |
       grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
-    if [[ -z "$tags" ]]; then
-      echo "Error: could not list alef releases" >&2
+    if [[ -z "$tag" ]]; then
+      echo "Error: could not resolve latest alef release" >&2
       return 1
     fi
-
-    local tag
-    while IFS= read -r tag; do
-      [[ -z "$tag" ]] && continue
-      if binary_exists_for_tag "$tag"; then
-        echo "$tag"
-        return 0
-      fi
-      echo "Tag v${tag} has no binary for $(detect_target) yet — falling back to previous release" >&2
-    done <<<"$tags"
-
-    echo "Error: no recent alef release has a binary for $(detect_target)" >&2
-    return 1
+    echo "$tag"
   else
     echo "$version"
   fi
