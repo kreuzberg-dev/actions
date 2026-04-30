@@ -1,7 +1,15 @@
 name: Validate PR (Reusable)
 
+# PR titles use conventional-commit prefixes (feat/fix/docs/...) because they
+# become the changelog entry on squash-merge. Issues use a `bug:` prefix instead
+# of `fix:` (see reusable-validate-issues.yml).
+
 on:
   workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   validate-pr-title:

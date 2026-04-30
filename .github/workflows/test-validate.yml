@@ -1,0 +1,78 @@
+name: Test Validate Workflows
+
+# Smoke-tests the title-validation regexes used by reusable-validate-issues.yml
+# and reusable-validate-pr.yml against fixture titles. Pure shell — no Python —
+# because the regex is the entire surface area being verified.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/reusable-validate-issues.yml
+      - .github/workflows/reusable-validate-pr.yml
+      - .github/workflows/test-validate.yml
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/reusable-validate-issues.yml
+      - .github/workflows/reusable-validate-pr.yml
+      - .github/workflows/test-validate.yml
+
+jobs:
+  issue-titles:
+    name: Issue Title Regex
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run fixtures
+        run: |
+          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build): .{8,}$'
+
+          assert_pass() {
+            if echo "$1" | grep -qE "$allowed"; then
+              echo "PASS (expected) :: $1"
+            else
+              echo "::error::Expected to PASS but FAILED :: $1"; exit 1
+            fi
+          }
+          assert_fail() {
+            if ! echo "$1" | grep -qE "$allowed"; then
+              echo "FAIL (expected) :: $1"
+            else
+              echo "::error::Expected to FAIL but PASSED :: $1"; exit 1
+            fi
+          }
+
+          assert_pass "bug: extraction crashes on empty PDF"
+          assert_pass "feat: add streaming MCP output"
+          assert_pass "docs: explain caching invalidation"
+          assert_pass "chore: bump tokio to 1.40"
+
+          assert_fail "fix: legacy prefix not allowed for issues"
+          assert_fail "bug: short"
+          assert_fail "wat: unknown type"
+          assert_fail "no prefix at all"
+          assert_fail "bug:missing space"
+          assert_fail ""
+
+  pr-titles:
+    name: PR Title Regex
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run fixtures
+        run: |
+          allowed='^(feat|fix|docs|chore|refactor|test|ci|perf|build|style|revert)(\(.+\))?: .+'
+
+          assert_pass() {
+            if echo "$1" | grep -qE "$allowed"; then echo "PASS :: $1"; else echo "::error::expected PASS :: $1"; exit 1; fi
+          }
+          assert_fail() {
+            if ! echo "$1" | grep -qE "$allowed"; then echo "FAIL :: $1"; else echo "::error::expected FAIL :: $1"; exit 1; fi
+          }
+
+          assert_pass "feat: add user auth"
+          assert_pass "fix(parser): handle empty input"
+          assert_pass "chore(deps): bump tokio"
+          assert_pass "revert: undo merge"
+
+          assert_fail "bug: PRs use fix not bug"
+          assert_fail "wip: not allowed"
+          assert_fail "no colon"
