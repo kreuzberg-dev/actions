@@ -46,16 +46,12 @@ repos:
       - id: taplo-format
         exclude: "pyproject.toml"
 
-  # Shell scripts: formatting and linting
-  - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.13.1-1
+  # Shell scripts: formatting and linting (shared kreuzberg-dev hooks)
+  - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
+    rev: v0.1.0
     hooks:
       - id: shfmt
         args: ["-w", "-i", "2"]
-
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.11.0
-    hooks:
       - id: shellcheck
 
   # GitHub Actions: linting
