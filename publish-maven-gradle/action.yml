@@ -49,6 +49,11 @@ inputs:
     required: false
     default: "false"
 
+outputs:
+  skipped:
+    description: "Whether the publish was skipped because the version was already released"
+    value: ${{ steps.publish.outputs.skipped }}
+
 runs:
   using: composite
   steps:
@@ -96,6 +101,7 @@ runs:
         [[ $missing -eq 0 ]] || exit 1
 
     - name: Publish via Gradle
+      id: publish
       shell: bash
       env:
         # Standard env names consumed by the vanniktech maven-publish plugin
@@ -119,6 +125,7 @@ runs:
 
         if [[ "$DRY_RUN" == "true" ]]; then
           echo "[dry-run] Would run: gradle $GRADLE_TASK $FLAGS $EXTRA_ARGS"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -132,8 +139,10 @@ runs:
 
         if [[ $exit_code -eq 0 ]]; then
           echo "Published successfully via gradle $GRADLE_TASK"
-        elif echo "$output" | grep -qiE "already (released|published|exists)|conflict.*version"; then
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+        elif echo "$output" | grep -qiE "already (released|published|exists)|conflict.*version|409.*conflict"; then
           echo "Artifact already published, skipping"
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
         else
           echo "Gradle publish failed:" >&2
           echo "$output" >&2

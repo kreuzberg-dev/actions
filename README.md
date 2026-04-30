@@ -34,18 +34,39 @@ Shared GitHub Actions composite actions and reusable workflows for the kreuzberg
 
 ### Publish
 
-| Action | Description |
-|--------|-------------|
-| `publish-pypi` | Python packages to PyPI (with pypa/gh-action-pypi-publish) |
-| `publish-npm` | npm packages (.tgz or directory mode) |
-| `publish-crates` | Rust crates to crates.io (OIDC auth) |
-| `publish-rubygems` | Ruby gems to RubyGems.org |
-| `publish-maven` | Java artifacts to Maven Central |
-| `publish-nuget` | .NET packages to NuGet |
-| `publish-packagist` | PHP packages to Packagist |
-| `publish-hex` | Elixir packages to Hex.pm |
-| `publish-homebrew` | Homebrew formula updates with bottle hashes |
-| `publish-github-release` | GitHub releases with artifact uploads |
+All publish actions are idempotent: re-running on an already-published version
+exits 0 (output `skipped=true` where applicable). Most accept `dry-run: 'true'`
+to print the command without executing.
+
+| Action | Target | Auth | Description |
+|--------|--------|------|-------------|
+| `publish-pypi` | PyPI | OIDC trusted publisher | Python packages via `pypa/gh-action-pypi-publish` |
+| `publish-npm` | npm | `NPM_TOKEN` | `.tgz` files from a directory or direct `package-dir`; supports `npm-tag` (`latest`/`next`/`rc`) |
+| `publish-crates` | crates.io | OIDC (`rust-lang/crates-io-auth-action`) | Rust crates with dependency-ordered publishing |
+| `publish-rubygems` | RubyGems.org | `GEM_HOST_API_KEY` or trusted publisher | Ruby gems |
+| `publish-maven` | Maven Central | `MAVEN_USERNAME` + `MAVEN_PASSWORD` + GPG | Java / `pom.xml` projects via `mvn deploy` |
+| `publish-maven-gradle` | Maven Central | same as `publish-maven` | Kotlin / Java-Gradle via `gradle publishAndReleaseToMavenCentral` (or any task); imports GPG into the agent |
+| `publish-nuget` | NuGet.org | OIDC trusted publisher (preferred) or `NUGET_API_KEY` | .NET `.nupkg` files |
+| `publish-packagist` | Packagist | `PACKAGIST_API_TOKEN` | Triggers re-index for PHP packages auto-discovered from Git tags |
+| `publish-hex` | Hex.pm | `HEX_API_KEY` | Elixir packages via `mix hex.publish` |
+| `publish-gleam` | Hex.pm | `HEX_API_KEY` | Gleam packages via `gleam publish`; reuses the same `HEX_API_KEY` as `publish-hex` |
+| `publish-pub` | pub.dev | OIDC trusted publisher | Dart packages; requires a one-time pub.dev claim of the package |
+| `publish-swift` | Swift Package Index | none | Validates `Package.swift` + tag, pings SPI to expedite re-index |
+| `publish-zig` | Git tag | none | Validates `build.zig.zon` + tag; emits the tarball SHA-256 downstream consumers need for `build.zig.zon`'s `hash` field; can append a fetch snippet to the GH release notes |
+| `publish-homebrew` | Homebrew tap | `HOMEBREW_TOKEN` | Formula updates with bottle hashes |
+| `publish-github-release` | GitHub Releases | `GITHUB_TOKEN` | Release-asset uploads |
+
+**Idempotency contract.** Each `publish-*` action either:
+
+1. Detects "already published" output from the underlying tool (case-insensitive grep) and exits 0 with `skipped=true`, **or**
+2. Has no side effect to be idempotent about — `publish-swift` and `publish-zig` are Git-tag-only and re-running them is naturally a no-op.
+
+Pair with `check-registry` to skip the publish step entirely when the version
+is already live (pre-flight gate; faster than relying on publish-time
+idempotency, since the build/auth steps are skipped too). `check-registry`
+covers `pypi`, `npm`, `wasm`, `rubygems`, `hex`, `maven`, `nuget`, `cratesio`,
+`packagist`, `homebrew`, and `github-release` (the last for `swift`/`zig`
+tag-based publishes).
 
 ### Release Infrastructure
 
