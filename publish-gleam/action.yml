@@ -1,0 +1,114 @@
+name: Publish Gleam Package to Hex.pm
+description: >
+  Publish Gleam packages to Hex.pm via `gleam publish`.
+  Gleam packages live alongside Elixir packages on Hex; this action uses the
+  same `HEX_API_KEY` credential as `publish-hex`.
+  Handles already-published versions idempotently.
+
+inputs:
+  package-dir:
+    description: "Directory containing gleam.toml"
+    required: false
+    default: "."
+  setup-beam:
+    description: "Whether to install Erlang/OTP + Gleam via erlef/setup-beam@v1. Set to 'false' if already installed."
+    required: false
+    default: "true"
+  otp-version:
+    description: "Erlang/OTP version (passed to erlef/setup-beam)"
+    required: false
+    default: "27"
+  gleam-version:
+    description: "Gleam version (passed to erlef/setup-beam)"
+    required: false
+    default: "1.6"
+  replace:
+    description: "Allow replacing an existing published version (Hex --replace flag)"
+    required: false
+    default: "true"
+  dry-run:
+    description: "Perform a dry run without actually publishing"
+    required: false
+    default: "false"
+
+outputs:
+  skipped:
+    description: "Whether the publish step was skipped because the version was already published"
+    value: ${{ steps.publish.outputs.skipped }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up BEAM (Erlang/OTP + Gleam)
+      if: inputs.setup-beam == 'true'
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ inputs.otp-version }}
+        gleam-version: ${{ inputs.gleam-version }}
+
+    - name: Verify HEX_API_KEY is set
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        HEX_API_KEY: ${{ env.HEX_API_KEY }}
+      run: |
+        if [[ -z "${HEX_API_KEY:-}" ]]; then
+          echo "Error: HEX_API_KEY environment variable not set" >&2
+          echo "Set it in the calling workflow's env or job-level env block." >&2
+          exit 1
+        fi
+
+    - name: Build Gleam package
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        cd "$PACKAGE_DIR"
+        gleam build
+
+    - name: Publish to Hex.pm
+      id: publish
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        HEX_API_KEY: ${{ env.HEX_API_KEY }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        REPLACE: ${{ inputs.replace }}
+      run: |
+        cd "$PACKAGE_DIR"
+        PUBLISH_FLAGS="--yes"
+        if [[ "$REPLACE" == "true" ]]; then
+          PUBLISH_FLAGS="${PUBLISH_FLAGS} --replace"
+        fi
+
+        set +e
+        # shellcheck disable=SC2086
+        output=$(gleam publish $PUBLISH_FLAGS 2>&1)
+        exit_code=$?
+        set -e
+
+        echo "$output"
+
+        if [[ $exit_code -eq 0 ]]; then
+          echo "Published successfully"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+        elif echo "$output" | grep -qiE "already published|version already exists|already been published"; then
+          echo "Package already published, skipping"
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Error publishing Gleam package:" >&2
+          echo "$output" >&2
+          exit 1
+        fi
+
+    - name: Dry run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        cd "$PACKAGE_DIR"
+        name=$(grep '^name' gleam.toml | head -1 | sed 's/.*=\s*"\(.*\)".*/\1/')
+        version=$(grep '^version' gleam.toml | head -1 | sed 's/.*=\s*"\(.*\)".*/\1/')
+        echo "[dry-run] Would publish ${name}@${version} to Hex.pm via gleam publish"
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
