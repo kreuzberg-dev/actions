@@ -1,6 +1,13 @@
 name: Publish to NuGet
 description: >
-  Publish .NET NuGet packages with skip-duplicate support.
+  Publish .NET NuGet packages to nuget.org with skip-duplicate support.
+  Supports two authentication modes:
+    1. OIDC trusted publishing (preferred). Configure a trusted publisher
+       on https://www.nuget.org/account/trustedpublishing pointing at the
+       caller's repo + workflow file; then set `permissions: id-token: write`
+       on the calling workflow/job. No secret needed.
+    2. Static API key. Set NUGET_API_KEY in the calling workflow's env.
+  The script picks OIDC when `NUGET_API_KEY` is empty.
 
 inputs:
   packages-dir:
@@ -26,7 +33,13 @@ runs:
     - name: Publish NuGet packages
       shell: bash
       env:
+        # Static-key flow (legacy); when unset, the script falls back to
+        # OIDC trusted publishing via ACTIONS_ID_TOKEN_REQUEST_*.
         NUGET_API_KEY: ${{ env.NUGET_API_KEY }}
+        # OIDC trusted publishing — these are injected by GitHub when the
+        # workflow has `permissions: id-token: write`.
+        ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
         INPUT_SOURCE: ${{ inputs.source }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}

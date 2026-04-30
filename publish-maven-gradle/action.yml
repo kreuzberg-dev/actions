@@ -1,0 +1,141 @@
+name: Publish to Maven Central via Gradle
+description: >
+  Publish a Gradle-built JVM project (Kotlin, Java/Gradle, or Android library)
+  to Maven Central with GPG signing. Wraps the standard `signing` +
+  `maven-publish` Gradle plugins, or a higher-level publish task such as the
+  one provided by `com.vanniktech.maven.publish`.
+
+  Auth via env: `MAVEN_USERNAME`, `MAVEN_PASSWORD` (Sonatype Central Portal
+  user token), `MAVEN_GPG_PASSPHRASE`. The GPG private key is imported from
+  the `MAVEN_GPG_PRIVATE_KEY` env var (ASCII-armored), or — if you already
+  ran `actions/setup-java@v5` with `gpg-private-key`/`gpg-passphrase` — you
+  can omit it here.
+
+inputs:
+  working-directory:
+    description: "Directory containing the Gradle project (build.gradle/.kts)"
+    required: false
+    default: "."
+  gradle-task:
+    description: >
+      Gradle task to invoke. Common values:
+        - `publishAndReleaseToMavenCentral` (vanniktech plugin, recommended)
+        - `publishToMavenCentral` (vanniktech, leaves staging open)
+        - `publish` (vanilla maven-publish, requires manual staging close on Central Portal)
+    required: false
+    default: "publishAndReleaseToMavenCentral"
+  extra-args:
+    description: "Additional Gradle arguments (space-separated)"
+    required: false
+    default: ""
+  no-daemon:
+    description: "Pass --no-daemon to gradle (recommended in CI)"
+    required: false
+    default: "true"
+  setup-gradle:
+    description: "Run gradle/actions/setup-gradle. Set to 'false' if already configured."
+    required: false
+    default: "true"
+  java-version:
+    description: "JDK version to install via setup-java (no-op if setup-java is 'false')"
+    required: false
+    default: "21"
+  setup-java:
+    description: "Run actions/setup-java@v5. Set to 'false' if already configured."
+    required: false
+    default: "true"
+  dry-run:
+    description: "Print the gradle command instead of executing"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK
+      if: inputs.setup-java == 'true'
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: temurin
+
+    - name: Set up Gradle
+      if: inputs.setup-gradle == 'true'
+      uses: gradle/actions/setup-gradle@v6
+
+    - name: Import GPG key
+      if: env.MAVEN_GPG_PRIVATE_KEY != ''
+      shell: bash
+      env:
+        MAVEN_GPG_PRIVATE_KEY: ${{ env.MAVEN_GPG_PRIVATE_KEY }}
+        MAVEN_GPG_PASSPHRASE: ${{ env.MAVEN_GPG_PASSPHRASE }}
+      run: |
+        echo "$MAVEN_GPG_PRIVATE_KEY" | gpg --batch --import
+        # Make the key usable for non-interactive signing
+        for fpr in $(gpg --list-secret-keys --with-colons | awk -F: '$1 == "fpr" {print $10; exit}'); do
+          echo "$fpr:6:" | gpg --import-ownertrust
+        done
+
+    - name: Verify required env
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        MAVEN_USERNAME: ${{ env.MAVEN_USERNAME }}
+        MAVEN_PASSWORD: ${{ env.MAVEN_PASSWORD }}
+      run: |
+        missing=0
+        for v in MAVEN_USERNAME MAVEN_PASSWORD; do
+          if [[ -z "${!v:-}" ]]; then
+            echo "Error: $v not set" >&2
+            missing=1
+          fi
+        done
+        if [[ -z "${MAVEN_GPG_PASSPHRASE:-}" ]]; then
+          echo "Warning: MAVEN_GPG_PASSPHRASE not set — signing will fail unless gpg-agent has the passphrase cached." >&2
+        fi
+        [[ $missing -eq 0 ]] || exit 1
+
+    - name: Publish via Gradle
+      shell: bash
+      env:
+        # Standard env names consumed by the vanniktech maven-publish plugin
+        # and by the vanilla maven-publish/signing plugins via project properties.
+        ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.MAVEN_USERNAME }}
+        ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.MAVEN_PASSWORD }}
+        ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ env.MAVEN_GPG_PRIVATE_KEY }}
+        ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ env.MAVEN_GPG_PASSPHRASE }}
+        WORKING_DIR: ${{ inputs.working-directory }}
+        GRADLE_TASK: ${{ inputs.gradle-task }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}
+        NO_DAEMON: ${{ inputs.no-daemon }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        cd "$WORKING_DIR"
+
+        FLAGS=""
+        if [[ "$NO_DAEMON" == "true" ]]; then
+          FLAGS="$FLAGS --no-daemon"
+        fi
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "[dry-run] Would run: gradle $GRADLE_TASK $FLAGS $EXTRA_ARGS"
+          exit 0
+        fi
+
+        set +e
+        # shellcheck disable=SC2086
+        output=$(gradle $GRADLE_TASK $FLAGS $EXTRA_ARGS 2>&1)
+        exit_code=$?
+        set -e
+
+        echo "$output"
+
+        if [[ $exit_code -eq 0 ]]; then
+          echo "Published successfully via gradle $GRADLE_TASK"
+        elif echo "$output" | grep -qiE "already (released|published|exists)|conflict.*version"; then
+          echo "Artifact already published, skipping"
+        else
+          echo "Gradle publish failed:" >&2
+          echo "$output" >&2
+          exit $exit_code
+        fi

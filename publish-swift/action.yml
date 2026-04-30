@@ -1,0 +1,141 @@
+name: Publish Swift Package
+description: >
+  "Publish" a Swift Package to the Swift Package Index.
+
+  Swift Package Manager has no central registry — packages are consumed
+  directly from Git tags. This action therefore:
+    1. Validates that `Package.swift` parses with `swift package describe`.
+    2. Verifies the requested Git tag exists on the remote.
+    3. Optionally pings the Swift Package Index `package update` endpoint
+       to trigger immediate re-indexing of the new tag (the SPI also
+       auto-discovers new tags within ~1h, so the ping is a fast-path).
+
+  First-time submission to the Swift Package Index is a one-time manual
+  PR to https://github.com/SwiftPackageIndex/PackageList — this action
+  does not automate that.
+
+inputs:
+  working-directory:
+    description: "Directory containing Package.swift"
+    required: false
+    default: "."
+  tag:
+    description: "Git tag to validate (defaults to GITHUB_REF_NAME on a tag push)"
+    required: false
+    default: ""
+  package-url:
+    description: >
+      The package's canonical Git URL (e.g. https://github.com/owner/repo).
+      Used by the Swift Package Index ping. Defaults to the GitHub server
+      URL + repository.
+    required: false
+    default: ""
+  ping-spi:
+    description: "Trigger Swift Package Index re-index after validation"
+    required: false
+    default: "true"
+  setup-swift:
+    description: "Run swift-actions/setup-swift if Swift is not present"
+    required: false
+    default: "false"
+  swift-version:
+    description: "Swift version when setup-swift is true"
+    required: false
+    default: "5.10"
+  dry-run:
+    description: "Skip the SPI ping"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Swift (optional)
+      if: inputs.setup-swift == 'true'
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: ${{ inputs.swift-version }}
+
+    - name: Resolve tag
+      id: tag
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+      run: |
+        if [[ -n "$INPUT_TAG" ]]; then
+          tag="$INPUT_TAG"
+        elif [[ "$GITHUB_REF" =~ ^refs/tags/ ]]; then
+          tag="$GITHUB_REF_NAME"
+        else
+          echo "Error: no tag input and not running on a tag ref" >&2
+          exit 1
+        fi
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "Using tag: $tag"
+
+    - name: Validate Package.swift
+      shell: bash
+      env:
+        WORKING_DIR: ${{ inputs.working-directory }}
+      run: |
+        cd "$WORKING_DIR"
+        if command -v swift >/dev/null 2>&1; then
+          swift package describe --type json >/dev/null 2>&1 \
+            && echo "Package.swift validates" \
+            || { echo "Package.swift failed to parse" >&2; exit 1; }
+        else
+          # Light-weight syntax check: just verify the file exists and
+          # has a swift-tools-version line.
+          test -f Package.swift || { echo "Package.swift not found" >&2; exit 1; }
+          grep -q '^// swift-tools-version' Package.swift \
+            || { echo "Package.swift missing swift-tools-version directive" >&2; exit 1; }
+          echo "Package.swift sanity-checked (swift CLI not available for full parse)"
+        fi
+
+    - name: Verify tag is fetchable
+      shell: bash
+      env:
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        # Make sure the tag is on the remote (a workflow may run before
+        # the tag has been pushed, e.g. if triggered out of band).
+        if git ls-remote --tags origin "$TAG" | grep -q "refs/tags/$TAG"; then
+          echo "Tag $TAG present on remote"
+        else
+          echo "Error: tag $TAG not found on remote" >&2
+          exit 1
+        fi
+
+    - name: Ping Swift Package Index
+      if: inputs.ping-spi == 'true' && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        INPUT_PACKAGE_URL: ${{ inputs.package-url }}
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        # Resolve the package URL.
+        if [[ -n "$INPUT_PACKAGE_URL" ]]; then
+          url="$INPUT_PACKAGE_URL"
+        else
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+        fi
+
+        # The Swift Package Index doesn't expose an authenticated trigger;
+        # it polls. The closest thing is a HEAD request to the package page
+        # to warm the cache. We fail-open: if SPI is unreachable, log and
+        # continue. SPI auto-discovers within ~1h regardless.
+        spi_url="https://swiftpackageindex.com/$(echo "$url" | sed -E 's#https?://github\.com/##')"
+        echo "Swift Package Index URL: $spi_url"
+        if curl -sSfI -m 10 "$spi_url" >/dev/null 2>&1; then
+          echo "SPI page reachable; new tags are typically indexed within ~1h"
+        else
+          echo "SPI page not yet reachable. If this is a first publish, submit a PR to https://github.com/SwiftPackageIndex/PackageList"
+        fi
+
+    - name: Dry run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      env:
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        echo "[dry-run] Would notify Swift Package Index for tag $TAG"

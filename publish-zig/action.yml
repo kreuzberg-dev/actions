@@ -1,0 +1,151 @@
+name: Publish Zig Package
+description: >
+  "Publish" a Zig package via Git tag.
+
+  Zig has no central package registry; packages are consumed via
+  `zig fetch --save <tarball-url>` against a Git tag tarball. This action:
+    1. Validates `build.zig.zon` syntax via `zig build --fetch` (no-op
+       fetch).
+    2. Verifies the Git tag is present on `origin`.
+    3. Computes the GitHub release tarball SHA-256 that downstream
+       consumers will need for their `build.zig.zon` `hash` field.
+    4. Optionally posts a summary comment on the release with the
+       resolved tarball URL + hash so consumers can copy-paste.
+
+inputs:
+  working-directory:
+    description: "Directory containing build.zig.zon"
+    required: false
+    default: "."
+  tag:
+    description: "Git tag to validate (defaults to GITHUB_REF_NAME on a tag push)"
+    required: false
+    default: ""
+  zig-version:
+    description: "Zig version (passed to mlugg/setup-zig)"
+    required: false
+    default: "0.13.0"
+  setup-zig:
+    description: "Install Zig via mlugg/setup-zig. Set to 'false' if Zig is already installed."
+    required: false
+    default: "true"
+  update-release-notes:
+    description: "Append the resolved tarball URL + SHA to the GitHub release notes"
+    required: false
+    default: "false"
+  dry-run:
+    description: "Skip release-notes update; only validate"
+    required: false
+    default: "false"
+
+outputs:
+  tarball-url:
+    description: "Resolved tarball URL for downstream `zig fetch --save`"
+    value: ${{ steps.resolve.outputs.tarball-url }}
+  tarball-sha256:
+    description: "SHA-256 of the tarball (downstream consumers need this for build.zig.zon)"
+    value: ${{ steps.resolve.outputs.tarball-sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Zig
+      if: inputs.setup-zig == 'true'
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ inputs.zig-version }}
+
+    - name: Resolve tag
+      id: tag
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+      run: |
+        if [[ -n "$INPUT_TAG" ]]; then
+          tag="$INPUT_TAG"
+        elif [[ "$GITHUB_REF" =~ ^refs/tags/ ]]; then
+          tag="$GITHUB_REF_NAME"
+        else
+          echo "Error: no tag input and not running on a tag ref" >&2
+          exit 1
+        fi
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "Using tag: $tag"
+
+    - name: Validate build.zig.zon
+      shell: bash
+      env:
+        WORKING_DIR: ${{ inputs.working-directory }}
+      run: |
+        cd "$WORKING_DIR"
+        test -f build.zig.zon || { echo "build.zig.zon not found in $WORKING_DIR" >&2; exit 1; }
+        # `zig build --fetch` resolves dependencies without compiling; it's
+        # the canonical syntax check for a .zon manifest.
+        if command -v zig >/dev/null 2>&1; then
+          zig build --fetch || { echo "build.zig.zon failed to validate" >&2; exit 1; }
+          echo "build.zig.zon validates"
+        else
+          echo "Zig CLI not present; skipping --fetch validation"
+        fi
+
+    - name: Verify tag is fetchable
+      shell: bash
+      env:
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        if git ls-remote --tags origin "$TAG" | grep -q "refs/tags/$TAG"; then
+          echo "Tag $TAG present on remote"
+        else
+          echo "Error: tag $TAG not found on remote" >&2
+          exit 1
+        fi
+
+    - name: Resolve tarball URL + SHA-256
+      id: resolve
+      shell: bash
+      env:
+        TAG: ${{ steps.tag.outputs.tag }}
+      run: |
+        url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+        echo "Tarball URL: $url"
+
+        sha=$(curl -sSL -m 60 "$url" | sha256sum | awk '{print $1}')
+        echo "Tarball SHA-256: $sha"
+
+        echo "tarball-url=$url" >> "$GITHUB_OUTPUT"
+        echo "tarball-sha256=$sha" >> "$GITHUB_OUTPUT"
+
+    - name: Append to release notes
+      if: inputs.update-release-notes == 'true' && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ env.GH_TOKEN }}
+        TAG: ${{ steps.tag.outputs.tag }}
+        URL: ${{ steps.resolve.outputs.tarball-url }}
+        SHA: ${{ steps.resolve.outputs.tarball-sha256 }}
+      run: |
+        if [[ -z "${GH_TOKEN:-}" ]]; then
+          echo "GH_TOKEN not set; skipping release-notes update"
+          exit 0
+        fi
+        body=$(gh release view "$TAG" --json body -q .body 2>/dev/null || echo "")
+        # Append a Zig fetch block (idempotent: only append once).
+        if ! echo "$body" | grep -q "<!-- zig-fetch -->"; then
+          new_body="$body"$'\n\n<!-- zig-fetch -->\n## Zig\n\nAdd to your `build.zig.zon`:\n\n```\n.dependencies = .{\n    .'"$(jq -r '.repository' < /dev/null 2>/dev/null || echo "spikard")"' = .{\n        .url = \"'"$URL"'\",\n        .hash = \"'"$SHA"'\",\n    },\n},\n```\n'
+          gh release edit "$TAG" --notes "$new_body"
+          echo "Release notes updated with Zig fetch block"
+        else
+          echo "Zig fetch block already present in release notes"
+        fi
+
+    - name: Dry-run summary
+      if: inputs.dry-run == 'true'
+      shell: bash
+      env:
+        TAG: ${{ steps.tag.outputs.tag }}
+        URL: ${{ steps.resolve.outputs.tarball-url }}
+        SHA: ${{ steps.resolve.outputs.tarball-sha256 }}
+      run: |
+        echo "[dry-run] Resolved Zig package metadata for $TAG:"
+        echo "  url:  $URL"
+        echo "  sha256: $SHA"
