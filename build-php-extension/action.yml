@@ -56,6 +56,12 @@ runs:
       if: runner.os == 'Windows'
       id: build-windows
       shell: pwsh
+      env:
+        # ext-php-rs uses #![cfg_attr(windows, feature(abi_vectorcall))] in its
+        # lib.rs — the abi_vectorcall feature is unstable, so on stable Rust
+        # we need RUSTC_BOOTSTRAP=1 to allow it. This is the upstream-recommended
+        # workaround; the alternative is using the nightly toolchain.
+        RUSTC_BOOTSTRAP: "1"
       run: |
         $ErrorActionPreference = "Stop"
         cargo build --package "${{ inputs.crate-name }}" --release
