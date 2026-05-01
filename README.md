@@ -31,6 +31,7 @@ Shared GitHub Actions composite actions and reusable workflows for the kreuzberg
 | `build-wasm-package` | WebAssembly packages |
 | `build-rust-cli` | Rust CLI binaries |
 | `build-homebrew-bottle` | Homebrew bottle tarballs from CLI binaries |
+| `package-php-pie` | PIE-conventional binary archive from a built PHP extension |
 
 ### Publish
 

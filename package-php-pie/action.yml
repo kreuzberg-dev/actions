@@ -1,0 +1,132 @@
+name: Package PHP extension as PIE archive
+description: |
+  Wrap alef publish package --lang php to produce a PIE-conventional pre-built
+  binary archive. Requires alef CLI on PATH (use kreuzberg-dev/actions/install-alef
+  first) and a built .so/.dylib/.dll (use kreuzberg-dev/actions/build-php-extension).
+
+inputs:
+  php-version:
+    description: 'PHP minor version (e.g. "8.5"). Required.'
+    required: true
+  php-ts:
+    description: 'Thread-safety mode: "nts" or "ts". Defaults to "nts".'
+    required: false
+    default: "nts"
+  target:
+    description: 'Rust target triple (e.g. "x86_64-unknown-linux-gnu"). Required.'
+    required: true
+  windows-compiler:
+    description: 'Windows compiler tag (e.g. "vs17"). Required when target OS is windows.'
+    required: false
+    default: ""
+  php-libc:
+    description: 'Linux libc override ("glibc" | "musl"). Auto-detected from target if absent.'
+    required: false
+    default: ""
+  output-dir:
+    description: 'Directory to place the archive in. Defaults to "dist/php-package".'
+    required: false
+    default: "dist/php-package"
+  version:
+    description: 'Version string (auto-detected from Cargo.toml if absent).'
+    required: false
+    default: ""
+
+outputs:
+  archive-path:
+    description: 'Path to the produced .tgz/.zip archive.'
+    value: ${{ steps.package.outputs.archive-path }}
+  archive-name:
+    description: 'Just the filename (no directory).'
+    value: ${{ steps.package.outputs.archive-name }}
+  sha256:
+    description: 'Hex SHA-256 of the archive.'
+    value: ${{ steps.package.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        WINDOWS_COMPILER: ${{ inputs.windows-compiler }}
+      run: |
+        set -euo pipefail
+        if [[ "${TARGET}" == *windows* ]] && [[ -z "${WINDOWS_COMPILER}" ]]; then
+          echo "::error::windows-compiler is required when target contains 'windows' (got target='${TARGET}')"
+          exit 1
+        fi
+
+    - name: Run alef publish package
+      id: package
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+        PHP_TS: ${{ inputs.php-ts }}
+        TARGET: ${{ inputs.target }}
+        WINDOWS_COMPILER: ${{ inputs.windows-compiler }}
+        PHP_LIBC: ${{ inputs.php-libc }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        # Build the alef command
+        cmd=(alef publish package --lang php
+          --target "${TARGET}"
+          --php-version "${PHP_VERSION}"
+          --php-ts "${PHP_TS}"
+          --output "${OUTPUT_DIR}"
+        )
+
+        if [[ -n "${WINDOWS_COMPILER}" ]]; then
+          cmd+=(--windows-compiler "${WINDOWS_COMPILER}")
+        fi
+
+        if [[ -n "${PHP_LIBC}" ]]; then
+          cmd+=(--php-libc "${PHP_LIBC}")
+        fi
+
+        if [[ -n "${VERSION}" ]]; then
+          cmd+=(--version "${VERSION}")
+        fi
+
+        echo "Running: ${cmd[*]}"
+        "${cmd[@]}"
+
+        # Locate the produced archive — alef writes exactly one php_*.tgz or php_*.zip
+        shopt -s nullglob
+        archives=("${OUTPUT_DIR}"/php_*.tgz "${OUTPUT_DIR}"/php_*.zip)
+        shopt -u nullglob
+
+        if [[ "${#archives[@]}" -eq 0 ]]; then
+          echo "::error::No php_*.tgz or php_*.zip found in '${OUTPUT_DIR}' after alef publish package"
+          exit 1
+        fi
+
+        if [[ "${#archives[@]}" -gt 1 ]]; then
+          echo "::error::Expected exactly one archive in '${OUTPUT_DIR}', found ${#archives[@]}: ${archives[*]}"
+          exit 1
+        fi
+
+        archive="${archives[0]}"
+        archive_name="$(basename "${archive}")"
+
+        # Read SHA-256 from the sidecar alef writes, falling back to computing it
+        sidecar="${archive}.sha256"
+        if [[ -f "${sidecar}" ]]; then
+          sha256="$(cat "${sidecar}")"
+          # Strip any trailing filename annotation (shasum -a 256 format: "<hex>  <name>")
+          sha256="${sha256%% *}"
+        elif command -v sha256sum &>/dev/null; then
+          sha256="$(sha256sum "${archive}" | awk '{print $1}')"
+        else
+          sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+        fi
+
+        echo "archive-path=${archive}" >> "${GITHUB_OUTPUT}"
+        echo "archive-name=${archive_name}" >> "${GITHUB_OUTPUT}"
+        echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
+        echo "Packaged: ${archive_name} (sha256=${sha256})"
