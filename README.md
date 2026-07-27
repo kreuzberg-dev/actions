@@ -108,6 +108,7 @@ covers `pypi`, `npm`, `wasm`, `rubygems`, `hex`, `maven`, `nuget`, `cratesio`,
 | `upload-release-assets` | Generic GH Release uploader; glob-expand a list of paths/patterns and upload with `--clobber` |
 | `verify-release-assets` | Verify the GH Release contains every expected asset (fnmatch patterns, optional min size) |
 | `finalize-release` | Edit GH Release from draft → published, set/clear prerelease, optionally create Go module tag |
+| `render-runtime-json` | Render a NuGet `runtime.json` from a `runtime.json.template`, substituting the release version for the `{{VERSION}}` token before `dotnet pack` |
 | `announce-release-discord` | Post a release announcement to Discord (skips RC tags, dedup via release-asset marker) |
 
 ### Test

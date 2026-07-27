@@ -1,0 +1,36 @@
+name: Render Runtime JSON
+description: >
+  Render a NuGet runtime.json from a runtime.json.template by substituting the
+  release version for the literal {{VERSION}} token, before `dotnet pack`.
+
+inputs:
+  template-path:
+    description: "Path to the runtime.json.template file"
+    required: true
+  version:
+    description: "Release version substituted for the literal {{VERSION}} token"
+    required: true
+  output-path:
+    description: >
+      Where to write the rendered runtime.json. Defaults to the template path
+      with the trailing `.template` suffix removed.
+    required: false
+    default: ""
+
+outputs:
+  rendered-path:
+    description: "Path to the rendered runtime.json file"
+    value: ${{ steps.render.outputs.rendered-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Render runtime.json
+      id: render
+      shell: bash
+      env:
+        INPUT_TEMPLATE_PATH: ${{ inputs.template-path }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
+      run: >-
+        python3 "${{ github.action_path }}/scripts/render.py"
