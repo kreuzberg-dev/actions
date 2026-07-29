@@ -14,6 +14,13 @@ github_repo="${GITHUB_REPO:?GITHUB_REPO is required (e.g. xberg-io/foo)}"
 # the self-contained behavior for other callers. ~keep
 upload="${UPLOAD:-true}"
 
+# Homebrew 6.0.13 regressed `brew install --build-bottle` on Linux: the keg builds
+# (🍺 prints) but the process then exits 1 with the underlying error swallowed, which
+# aborts this script under `set -e` before `brew bottle` runs. 6.0.12 was the last
+# green Linux bottle build, whereas 6.0.13 fails it (seen on crawlberg v1.0.11). macOS
+# is unaffected, so we pin only the Linux leg. Override via LINUX_BREW_PIN if needed.
+linux_brew_pin="${LINUX_BREW_PIN:-6.0.12}"
+
 mkdir -p "$out_dir"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
@@ -28,7 +35,16 @@ echo "::endgroup::"
 
 echo "::group::Tap ${tap}"
 export HOMEBREW_NO_INSTALL_FROM_API=1
-brew update --quiet || true
+if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
+	# Pin to the last-known-good brew instead of updating to latest (see linux_brew_pin).
+	brew_repo="$(brew --repository)"
+	git -C "$brew_repo" fetch --force --tags origin "refs/tags/${linux_brew_pin}:refs/tags/${linux_brew_pin}"
+	git -C "$brew_repo" -c advice.detachedHead=false checkout --force --quiet "$linux_brew_pin"
+	export HOMEBREW_NO_AUTO_UPDATE=1
+	echo "Pinned Linux Homebrew to ${linux_brew_pin}: $(brew --version | head -1)"
+else
+	brew update --quiet || true
+fi
 export HOMEBREW_NO_SANDBOX_LINUX=1
 brew tap "$tap"
 brew trust "$tap" || echo "warning: brew trust unavailable; relying on env-var bypass"
