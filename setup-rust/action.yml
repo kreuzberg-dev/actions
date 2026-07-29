@@ -140,7 +140,7 @@ runs:
 
     - name: Setup sccache
       if: inputs.use-sccache == 'true'
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@v0.0.11
       continue-on-error: true
 
     - name: Configure Rust flags
