@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.105] - 2026-07-29
+
 ### Removed
 
 - **Removed `setup-openssl` action and `linux-features` input from build actions.** kreuzberg migrated all TLS to pure rustls + OS-native trust stores (ureq platform-verifier, ort tls-rustls), eliminating OpenSSL from the build entirely. The `setup-openssl` action which installed libssl-dev/OpenSSL is no longer used. The `linux-features` input (which passed `kreuzberg/openssl-vendored` to enable OpenSSL vendoring) is removed from all build actions: `build-rust-cli`, `build-rust-ffi`, `build-go-ffi`, `build-java-natives`, `build-csharp-natives`, `build-elixir-natives`, `build-swift-artifactbundle`. The musl builders (Alpine `apk add` lines) no longer install `openssl-dev`. Tests for the removed `linux-features` parameter have been deleted. (`setup-openssl/` action removed entirely, all `*-features` inputs and plumbing removed from 7 build actions + musl builders, `tests/test_build_ffi.py`)
