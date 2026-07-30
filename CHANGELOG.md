@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.106] - 2026-07-30
+
 ### Fixed
 
 - **`homebrew-build-bottles`: pin `homebrew/core` to match the pinned Linux brew.** The Linux leg pins brew to 6.0.12 (to dodge the 6.0.13 `--build-bottle` regression) but `HOMEBREW_NO_INSTALL_FROM_API=1` makes brew evaluate core formulae from the on-disk `homebrew/core` tap, which `install.sh` clones at latest. Core formulae adopted the `run` install-steps DSL in 6.0.13, which 6.0.12 can't parse, so dependency import (ca-certificates, …) died with `undefined method 'run' for an instance of Homebrew::InstallSteps::DSL` — silently failing **every** Linux bottle after the pin landed (crawlberg v1.0.11/v1.0.12: both Linux legs red → the merge-bottle-DSL job was skipped → the published tap formula was left with `url` at the new version but the bottle block frozen at v1.0.10, so `brew` composed a 404 bottle URL). The Linux path now clones `homebrew/core` at the commit contemporaneous with the brew tag (a blobless shallow clone bounded to a few days around the tag) so on-disk formula syntax matches the running brew, restoring the v1.0.10-era known-good combination. (`homebrew-build-bottles/scripts/build-bottles.sh`)
