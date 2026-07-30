@@ -36,12 +36,32 @@ echo "::endgroup::"
 echo "::group::Tap ${tap}"
 export HOMEBREW_NO_INSTALL_FROM_API=1
 if [[ "${RUNNER_OS:-}" == "Linux" ]]; then
-	# Pin to the last-known-good brew instead of updating to latest (see linux_brew_pin).
+	# Pin brew to the last-known-good release instead of updating to latest (see
+	# linux_brew_pin).
 	brew_repo="$(brew --repository)"
 	git -C "$brew_repo" fetch --force --tags origin "refs/tags/${linux_brew_pin}:refs/tags/${linux_brew_pin}"
 	git -C "$brew_repo" -c advice.detachedHead=false checkout --force --quiet "$linux_brew_pin"
 	export HOMEBREW_NO_AUTO_UPDATE=1
 	echo "Pinned Linux Homebrew to ${linux_brew_pin}: $(brew --version | head -1)"
+
+	# HOMEBREW_NO_INSTALL_FROM_API=1 makes brew evaluate core formulae from the on-disk
+	# homebrew/core tap, which install.sh clones at latest. Core formulae adopted the
+	# `run` install-steps DSL in Homebrew 6.0.13, which the pinned 6.0.12 brew cannot
+	# parse — dependency import (ca-certificates, …) then dies with "undefined method
+	# 'run'", which is what silently broke every Linux bottle after the pin landed
+	# (crawlberg v1.0.11/v1.0.12). Pin the core tap to its state as of the brew tag so
+	# the on-disk formulae match the running brew. A blobless shallow clone bounded to a
+	# few days around the tag keeps this cheap; checkout under `set -e` fails loudly if
+	# no matching commit is found rather than silently re-introducing the skew.
+	core_repo="$(brew --repository homebrew/core)"
+	pin_date="$(git -C "$brew_repo" log -1 --format=%cI HEAD)"
+	window_start="$(date -u -d "${pin_date} - 3 days" +%Y-%m-%dT%H:%M:%SZ)"
+	rm -rf "$core_repo"
+	git clone --quiet --filter=blob:none --shallow-since="$window_start" \
+		https://github.com/Homebrew/homebrew-core "$core_repo"
+	core_commit="$(git -C "$core_repo" rev-list -n1 --first-parent --before="$pin_date" HEAD)"
+	git -C "$core_repo" -c advice.detachedHead=false checkout --force --quiet "$core_commit"
+	echo "Pinned homebrew/core to ${core_commit} (as of ${pin_date}) to match brew ${linux_brew_pin}"
 else
 	brew update --quiet || true
 fi
