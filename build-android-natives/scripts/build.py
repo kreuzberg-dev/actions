@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Build a Rust crate for Android ABIs using cargo-ndk and stage the libraries.
 
-Stages at: {output-dir}/{abi}/lib{lib-name}.so
+cargo-ndk copies the crate's own cdylib (lib{crate soname}.so) into
+{output-dir}/{abi}/. After building, this verifies that lib{lib-name}.so exists and
+is non-empty for every ABI, failing loudly otherwise — so lib-name must match the
+crate's [lib] name. No rename is performed (renaming an _ffi lib to _jni would hide
+a library that lacks the JNI entry points). See html-to-markdown#446.
 
 Inputs (env vars):
     INPUT_CRATE_NAME: cargo package name (required)
-    INPUT_LIB_NAME: library base name (default = crate-name with - → _)
+    INPUT_LIB_NAME: expected library base name; must match the crate's [lib] name
+        (default = crate-name with - → _)
     INPUT_ABIS: comma-separated Android ABIs (default arm64-v8a,x86_64)
     INPUT_API_LEVEL: Android API level (default 21)
     INPUT_OUTPUT_DIR: staging root (default dist/android-natives)
@@ -25,10 +30,6 @@ ABI_TO_RUST_TARGET = {
     "x86": "i686-linux-android",
     "armeabi-v7a": "armv7-linux-androideabi",
 }
-
-
-def cargo_release_dir(target: str) -> Path:
-    return Path("target") / target / "release"
 
 
 def run_command(cmd: list[str]) -> None:
@@ -51,6 +52,38 @@ def ensure_input(name: str, value: str) -> str:
         print(f"Error: {name} is required", file=sys.stderr)
         sys.exit(1)
     return value
+
+
+def verify_staged_libs(output_dir: Path, abis: list[str], lib_name: str) -> None:
+    """Fail loudly if cargo-ndk did not stage lib{lib_name}.so for every ABI.
+
+    cargo-ndk copies the built crate's own cdylib soname verbatim, and exits 0 even
+    when it copied nothing (e.g. the crate has no android cdylib target). Without
+    this check a missing or misnamed library produces a jni-less/wrong-lib AAR that
+    only fails at runtime with UnsatisfiedLinkError. See html-to-markdown#446.
+    """
+    missing = []
+    for abi in abis:
+        lib_path = output_dir / abi / f"lib{lib_name}.so"
+        if not lib_path.is_file() or lib_path.stat().st_size == 0:
+            missing.append((abi, lib_path))
+    if missing:
+        print(
+            f"Error: expected lib{lib_name}.so was not staged for: {', '.join(abi for abi, _ in missing)}",
+            file=sys.stderr,
+        )
+        for abi, lib_path in missing:
+            abi_dir = lib_path.parent
+            found = sorted(p.name for p in abi_dir.glob("*.so")) if abi_dir.is_dir() else []
+            print(
+                f"  {abi}: missing {lib_path} (found in {abi_dir}: {found or 'nothing'})",
+                file=sys.stderr,
+            )
+        print(
+            "Check that crate-name builds an android cdylib and that lib-name matches its [lib] name.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def main() -> None:
@@ -120,6 +153,8 @@ def main() -> None:
         if features:
             cmd.extend(["--features", features])
         run_command(cmd)
+
+    verify_staged_libs(output_dir, abis, lib_name)
 
     print(f"[build-android-natives] staged libraries under: {output_dir.resolve()}")
 

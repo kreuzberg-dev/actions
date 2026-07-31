@@ -50,7 +50,9 @@ steps:
 
 ## Notes
 
-- Libraries are staged as `{output-dir}/{abi}/lib{lib-name}.so`.
+- cargo-ndk stages the crate's own cdylib at `{output-dir}/{abi}/lib{lib-name}.so`.
+  After building, the action verifies `lib{lib-name}.so` exists and is non-empty for
+  every ABI and fails otherwise, so `lib-name` must match the crate's `[lib]` name.
 - The action requires the Android SDK to be set up via
   `android-actions/setup-android@v3` before being called.
 - Supported ABIs: `arm64-v8a`, `x86_64`, `x86`, `armeabi-v7a`.
