@@ -4,6 +4,12 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.107] - 2026-07-31
+
+### Added
+
+- **`reusable-validate`: `setup-java` input to install a JDK for poly's checkstyle project check.** poly runs `mvn checkstyle:check` as a whole-project check against Java bindings; checkstyle 13.x requires a JDK 21+ while GitHub runners default to 17, so the check died with `UnsupportedClassVersionError` (class file version 65.0 vs 61.0). New opt-in `setup-java` (default `false`) plus `java-version` (default `"21"`) and `java-distribution` (default `"temurin"`) inputs add an `actions/setup-java@v5` step before poly runs. Backward-compatible — callers that don't set `setup-java` are unaffected. (`reusable-validate.yml`)
+
 ## [1.8.106] - 2026-07-30
 
 ### Fixed

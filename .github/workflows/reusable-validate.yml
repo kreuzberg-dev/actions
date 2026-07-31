@@ -23,6 +23,21 @@ on:
         required: false
         type: string
         default: "3.13"
+      setup-java:
+        description: "Install a JDK so poly's checkstyle project check (mvn checkstyle:check) can run against Java bindings."
+        required: false
+        type: boolean
+        default: false
+      java-version:
+        description: "JDK version for setup-java (checkstyle 13+ requires 21+; match the binding's maven.compiler.release)."
+        required: false
+        type: string
+        default: "21"
+      java-distribution:
+        description: "JDK distribution for setup-java."
+        required: false
+        type: string
+        default: "temurin"
       runner:
         description: "Runner label(s) to run on. Defaults to GitHub-hosted; pass a self-hosted label to run on org runners."
         required: false
@@ -65,6 +80,13 @@ jobs:
         if: ${{ inputs.setup-python }}
         continue-on-error: true
         run: uv sync || echo "uv sync skipped — non-fatal for poly lint"
+
+      - name: Set up Java
+        if: ${{ inputs.setup-java }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
 
       - name: Resolve latest poly version
         id: poly-latest
