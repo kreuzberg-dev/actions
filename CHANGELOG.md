@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.109] - 2026-08-01
+
 ### Added
 
 - **`reusable-binstall-verify`: new reusable workflow that installs a released CLI via `cargo binstall` and smoke-tests it across a target matrix.** Pairs with `reusable-cli-release.yml` — that workflow uploads the `<asset-prefix><target>` archives, this one proves consumers can `cargo binstall` them from GitHub Releases. Asset-scheme agnostic: the download URL and in-archive binary path come from the consuming crate's `[package.metadata.binstall]`, so it only needs `package-name`, `binary-name`, and `manifest-path`. Inputs also cover a `smoke-command` override (for CLIs whose binary bundles runtime libs binstall does not place), a `targets` override (windows-gnu / reduced matrices), and a `git-url` fallback for CLIs not published to crates.io. (`.github/workflows/reusable-binstall-verify.yml`)
