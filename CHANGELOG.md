@@ -4,6 +4,12 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.110] - 2026-08-01
+
+### Fixed
+
+- **`reusable-binstall-verify`: authenticate the GitHub API calls `cargo binstall` makes.** The install job ran `cargo-bins/cargo-binstall` and `cargo binstall` with no `GITHUB_TOKEN` in scope, so its release-asset resolution hit the anonymous 60 req/hr GitHub API limit and 403'd on busy runners — reliably on `aarch64-apple-darwin`, where binstall's retry backoff outlasted the step deadline and failed the whole verify (and thus gated releases). Added a job-level `env: GITHUB_TOKEN: ${{ github.token }}` so both the setup action and the resolve calls authenticate (5000 req/hr). Uses the ambient caller token; needs only the `contents: read` callers already grant, so no consumer or `secrets:` change is required. (`.github/workflows/reusable-binstall-verify.yml`)
+
 ## [1.8.109] - 2026-08-01
 
 ### Added

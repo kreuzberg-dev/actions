@@ -72,6 +72,12 @@ jobs:
     name: Verify cargo-binstall (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 30
+    # Authenticate the GitHub API calls cargo-binstall makes to resolve release assets.
+    # Unauthenticated they share the 60 req/hr anonymous limit and 403 on busy runners
+    # (notably aarch64-apple-darwin); the ambient caller token lifts this to 5000 req/hr.
+    # Only read access is needed, which the callers' `contents: read` already grants.
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     strategy:
       fail-fast: false
       matrix:
