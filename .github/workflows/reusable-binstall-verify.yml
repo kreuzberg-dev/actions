@@ -1,0 +1,126 @@
+name: Verify cargo-binstall install
+
+# Reusable workflow that installs a released CLI via `cargo binstall` and smoke-tests
+# it across a target matrix. Pairs with `reusable-cli-release.yml`: that workflow builds
+# and uploads the `<asset-prefix><target>` archives, this one proves a consumer can
+# actually `cargo binstall` them. The asset URL + in-archive binary path come from the
+# consuming crate's `[package.metadata.binstall]`, so this workflow is asset-scheme
+# agnostic — it only needs the package/binary names and the crate manifest path.
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: "Cargo package to install (e.g. html-to-markdown-cli)"
+        required: true
+        type: string
+      binary-name:
+        description: "Installed binary name without extension (e.g. html-to-markdown)"
+        required: true
+        type: string
+      manifest-path:
+        description: >
+          Path to the CLI crate directory whose `[package.metadata.binstall]` should be
+          read (e.g. crates/html-to-markdown-cli). binstall reads this local manifest via
+          `--manifest-path` so the exact committed metadata is verified against the freshly
+          uploaded release assets. Ignored when `git-url` is set.
+        required: false
+        type: string
+        default: ""
+      smoke-command:
+        description: >
+          Bash run after install to prove the binary works. Defaults to
+          `<binary-name> --version`. Override to exercise real behavior (e.g. a stdin
+          transform) for CLIs whose binary bundles runtime libraries binstall does not place.
+        required: false
+        type: string
+        default: ""
+      targets:
+        description: >
+          JSON array of {os, target} objects to verify. Defaults to the reliable
+          cross-platform msvc set. Override to match the targets a repo actually ships
+          (e.g. windows-gnu, or repos without x86_64-apple-darwin) so binstall does not 404.
+        required: false
+        type: string
+        default: >-
+          [
+            {"os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu"},
+            {"os": "macos-latest", "target": "aarch64-apple-darwin"},
+            {"os": "windows-latest", "target": "x86_64-pc-windows-msvc"}
+          ]
+      checkout-ref:
+        description: "Git ref to check out (defaults to the triggering ref)"
+        required: false
+        type: string
+        default: ""
+      git-url:
+        description: >
+          When set, install with `cargo binstall --git <url>` instead of the crates.io
+          registry. Use for CLIs whose crate is not published to crates.io (poly-style).
+          When empty (default), install from the registry using the local manifest.
+        required: false
+        type: string
+        default: ""
+      extra-binstall-args:
+        description: "Extra arguments forwarded verbatim to `cargo binstall`"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  verify-binstall:
+    name: Verify cargo-binstall (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(inputs.targets) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          fetch-depth: 0
+          submodules: recursive
+
+      # Pin matches the reference implementation; bump here to move the whole fleet at once.
+      - uses: cargo-bins/cargo-binstall@v1.21.1
+
+      - name: Install CLI via cargo-binstall
+        shell: bash
+        env:
+          PACKAGE: ${{ inputs.package-name }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
+          TARGET: ${{ matrix.platform.target }}
+          GIT_URL: ${{ inputs.git-url }}
+          EXTRA_ARGS: ${{ inputs.extra-binstall-args }}
+        run: |
+          set -euo pipefail
+          args=( "$PACKAGE" --target "$TARGET" --no-confirm --log-level info )
+          if [[ -n "$GIT_URL" ]]; then
+            args+=( --git "$GIT_URL" )
+          else
+            args+=( --strategies crate-meta-data )
+            if [[ -n "$MANIFEST_PATH" ]]; then
+              args+=( --manifest-path "$MANIFEST_PATH" )
+            fi
+          fi
+          if [[ -n "$EXTRA_ARGS" ]]; then
+            # shellcheck disable=SC2206  # intentional word-splitting of caller-provided flags
+            args+=( $EXTRA_ARGS )
+          fi
+          echo "cargo binstall ${args[*]}"
+          cargo binstall "${args[@]}"
+
+      - name: Smoke-test installed binary
+        shell: bash
+        env:
+          BINARY_NAME: ${{ inputs.binary-name }}
+          SMOKE_COMMAND: ${{ inputs.smoke-command }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SMOKE_COMMAND" ]]; then
+            bash -c "$SMOKE_COMMAND"
+          else
+            "$BINARY_NAME" --version
+          fi
