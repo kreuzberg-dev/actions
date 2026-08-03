@@ -4,6 +4,12 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.111] - 2026-08-03
+
+### Fixed
+
+- **`reusable-validate-issues`: accept scoped conventional-commit issue titles.** The title regex `^(bug|feat|docs|chore|refactor|test|ci|perf|build): .{8,}$` only permitted a bare `type:` prefix and rejected valid scoped titles like `feat(cli): …`. Added an optional scope group `(\([a-z0-9._-]+\))?` so `type(scope): …` passes while the 8-char minimum body and the type list are unchanged. (`.github/workflows/reusable-validate-issues.yml`)
+
 ## [1.8.110] - 2026-08-01
 
 ### Fixed

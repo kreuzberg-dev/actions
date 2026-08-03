@@ -26,7 +26,7 @@ jobs:
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
-          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build): .{8,}$'
+          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build)(\([a-z0-9._-]+\))?: .{8,}$'
           if ! echo "$ISSUE_TITLE" | grep -qE "$allowed"; then
             echo "::error::Issue title must match: <type>: <description with at least 8 chars>"
             echo ""
