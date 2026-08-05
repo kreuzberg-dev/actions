@@ -44,6 +44,11 @@ install_task() {
 		else
 			echo "Warning: failed to pre-resolve 'latest' via GitHub API; falling back to installer default" >&2
 		fi
+	elif [[ "$resolved_version" != v* ]]; then
+		# taskfile.dev's install.sh and the release URLs both take the git tag, which is
+		# v-prefixed; a bare "3.51.1" fails every attempt with "unable to find '3.51.1'".
+		# `latest` already resolves to a tag, so only an explicitly pinned version needs this.
+		resolved_version="v${resolved_version}"
 	fi
 
 	while [[ $attempt -le $max_attempts ]]; do

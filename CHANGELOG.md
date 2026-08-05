@@ -14,6 +14,11 @@ All notable changes to xberg-io/actions are documented in this file.
   both platforms, and the Windows script falls back to the credential-free `/releases/latest`
   redirect, downloads the stable asset URL directly instead of reading it from release metadata,
   and retries the download. (`install-task/action.yml`, `install-task/scripts/windows.ps1`)
+- **`install-task`: a pinned `version` works on Unix.** `version: "3.51.1"` was passed through
+  verbatim, but taskfile.dev's installer and the release URLs both want the git tag, so all six
+  attempts failed with `unable to find '3.51.1'`. Only `latest` worked, because resolving it
+  already yields a v-prefixed tag. The version is now normalised the same way the Windows script
+  has always done. (`install-task/scripts/unix.sh`)
 
 ## [1.8.116] - 2026-08-05
 
