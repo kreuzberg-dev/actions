@@ -38,6 +38,71 @@ on:
         required: false
         type: string
         default: "temurin"
+      setup-go:
+        description: "Install Go and golangci-lint so poly's golangci-lint project check can run against Go bindings."
+        required: false
+        type: boolean
+        default: false
+      go-version:
+        description: "Go version for setup-go."
+        required: false
+        type: string
+        default: "stable"
+      golangci-lint-version:
+        description: "golangci-lint version to install (module path tag, e.g. v2.12.2)."
+        required: false
+        type: string
+        default: "v2.12.2"
+      go-working-directory:
+        description: "Directory holding the Go module, used to resolve its toolchain."
+        required: false
+        type: string
+        default: "packages/go"
+      setup-ruby:
+        description: "Install Ruby and the binding's bundle so poly's rubocop and steep project checks can run."
+        required: false
+        type: boolean
+        default: false
+      ruby-version:
+        description: "Ruby version for setup-ruby."
+        required: false
+        type: string
+        default: "3.4"
+      ruby-working-directory:
+        description: "Directory holding the Ruby binding's Gemfile."
+        required: false
+        type: string
+        default: "packages/ruby"
+      setup-dart:
+        description: "Install Dart and resolve the binding's pub deps so poly's dart-analyze project check can run."
+        required: false
+        type: boolean
+        default: false
+      dart-version:
+        description: "Dart SDK version for setup-dart."
+        required: false
+        type: string
+        default: "stable"
+      dart-working-directory:
+        description: "Directory holding the Dart binding's pubspec.yaml."
+        required: false
+        type: string
+        default: "packages/dart"
+      setup-elixir:
+        description: "Install Elixir/OTP so poly's credo project check can run against Elixir bindings."
+        required: false
+        type: boolean
+        default: false
+      elixir-version:
+        description: "Elixir version for setup-elixir."
+        required: false
+        type: string
+        default: "1.19"
+      otp-version:
+        description: "OTP version for setup-elixir."
+        required: false
+        type: string
+        default: "28"
       runner:
         description: "Runner label(s) to run on. Defaults to GitHub-hosted; pass a self-hosted label to run on org runners."
         required: false
@@ -87,6 +152,48 @@ jobs:
         with:
           distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
+
+      - name: Set up Go
+        if: ${{ inputs.setup-go }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: ${{ inputs.go-working-directory }}/go.sum
+
+      # Installed from source rather than via golangci-lint-action, which runs the
+      # linter itself — here poly is the one that invokes it, so only the binary is
+      # wanted on PATH. `go install` puts it in GOPATH/bin, already on PATH. ~keep
+      - name: Install golangci-lint
+        if: ${{ inputs.setup-go }}
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ inputs.golangci-lint-version }}
+
+      - name: Set up Ruby
+        if: ${{ inputs.setup-ruby }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ inputs.ruby-version }}
+          bundler-cache: true
+          working-directory: ${{ inputs.ruby-working-directory }}
+
+      - name: Set up Dart
+        if: ${{ inputs.setup-dart }}
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ inputs.dart-version }}
+
+      # `dart analyze` resolves nothing itself and reports every package import as
+      # an error until the deps are on disk. ~keep
+      - name: Resolve Dart deps
+        if: ${{ inputs.setup-dart }}
+        working-directory: ${{ inputs.dart-working-directory }}
+        run: dart pub get
+
+      - name: Set up Elixir
+        if: ${{ inputs.setup-elixir }}
+        uses: xberg-io/actions/setup-elixir@v1
+        with:
+          elixir-version: ${{ inputs.elixir-version }}
+          otp-version: ${{ inputs.otp-version }}
 
       - name: Resolve latest poly version
         id: poly-latest

@@ -20,7 +20,8 @@ jobs:
     steps:
       - name: Run fixtures
         run: |
-          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build): .{8,}$'
+          # Must stay byte-identical to reusable-validate-issues.yml. ~keep
+          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build)(\([a-z0-9._-]+\))?: .{8,}$'
 
           assert_pass() {
             if echo "$1" | grep -qE "$allowed"; then
@@ -41,7 +42,11 @@ jobs:
           assert_pass "feat: add streaming MCP output"
           assert_pass "docs: explain caching invalidation"
           assert_pass "chore: bump tokio to 1.40"
+          assert_pass "feat(cli): add a scoped title"
+          assert_pass "bug(parser-v2): handles scopes with dots.and-dashes"
 
+          assert_fail "feat(CLI): scope must be lowercase"
+          assert_fail "feat(): empty scope is not a scope"
           assert_fail "fix: legacy prefix not allowed for issues"
           assert_fail "bug: short"
           assert_fail "wat: unknown type"

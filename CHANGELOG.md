@@ -4,6 +4,16 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.114] - 2026-08-05
+
+### Added
+
+- **`reusable-validate`: Go, Ruby, Dart and Elixir toolchain opt-ins.** The workflow could install only Rust, Python and Java, so the five whole-project checks poly drives that need another toolchain — `golangci-lint`, `rubocop`, `steep`, `dart-analyze`, `credo` — could not run in CI. Consumers worked around that by setting `[lint] workspace = false`, which disabled poly's entire workspace phase and left those five linters running in the git pre-commit hooks only, where CI never saw them. New `setup-go`, `setup-ruby`, `setup-dart` and `setup-elixir` inputs (each with version and working-directory companions) install what those checks need, so the workaround can be removed. (`.github/workflows/reusable-validate.yml`)
+
+### Fixed
+
+- **The issue-title fixtures test the regex that actually ships.** `test-validate.yml` still asserted the unscoped `^(bug|feat|…): .{8,}$` that v1.8.111 replaced, so it would have passed even if the scope support were reverted. Synced to the live regex and added scoped-title cases plus uppercase-scope and empty-scope negatives. (`.github/workflows/test-validate.yml`)
+
 ## [1.8.113] - 2026-08-05
 
 ### Fixed
