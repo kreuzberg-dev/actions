@@ -108,7 +108,8 @@ def remote_asset_size(tag: str, name: str) -> int | None:
         return None
     for asset in assets:
         if asset.get("name") == name and asset.get("state", "uploaded") == "uploaded":
-            return asset.get("size")
+            size = asset.get("size")
+            return size if isinstance(size, int) else None
     return None
 
 

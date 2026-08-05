@@ -100,6 +100,7 @@ def create_release(
     repo: str,
     tag: str,
     title: str,
+    *,
     generate_notes: bool,
     draft: bool,
     prerelease: bool,
@@ -130,7 +131,7 @@ def create_release(
 
 
 def update_release(
-    owner: str, repo: str, release_id: int, draft: bool | None = None, tag_name: str | None = None, token: str = ""
+    owner: str, repo: str, release_id: int, *, draft: bool | None = None, tag_name: str | None = None, token: str = ""
 ) -> dict[str, Any]:
     """Update a release via PATCH /repos/{owner}/{repo}/releases/{id}.
 
@@ -270,9 +271,9 @@ def main() -> None:
                 repo,
                 tag,
                 title,
-                generate_notes,
-                draft,
-                prerelease,
+                generate_notes=generate_notes,
+                draft=draft,
+                prerelease=prerelease,
                 notes=notes,
                 target=target,
                 token=token,
