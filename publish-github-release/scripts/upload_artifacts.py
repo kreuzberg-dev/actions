@@ -48,7 +48,7 @@ def get_release_by_tag(owner: str, repo: str, tag: str, token: str) -> dict[str,
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
     headers = get_github_api_headers(token)
 
-    req = urllib.request.Request(url, headers=headers, method="GET")  # noqa: S310
+    req = urllib.request.Request(url, headers=headers, method="GET")
 
     try:
         with urllib.request.urlopen(req) as response:  # noqa: S310
@@ -69,7 +69,7 @@ def delete_asset(owner: str, repo: str, asset_id: int, token: str) -> None:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/assets/{asset_id}"
     headers = get_github_api_headers(token)
 
-    req = urllib.request.Request(url, headers=headers, method="DELETE")  # noqa: S310
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
 
     try:
         with urllib.request.urlopen(req):  # noqa: S310

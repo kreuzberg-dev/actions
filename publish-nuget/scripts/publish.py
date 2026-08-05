@@ -75,7 +75,7 @@ def _exchange_oidc_for_nuget_key(oidc_token: str, nuget_username: str) -> str | 
     """
     url = "https://www.nuget.org/api/v2/token"
     body = json.dumps({"username": nuget_username, "tokenType": "ApiKey"}).encode()
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         url,
         data=body,
         headers={
