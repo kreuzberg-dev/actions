@@ -110,9 +110,6 @@ ignore = [
 ]
 
 
-[lint.typos.extend_words]
-CPY = "CPY"
-
 [lint.uncomment]
 enabled = true
 remove_todos = false
