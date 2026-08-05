@@ -12,10 +12,15 @@ Inputs (env vars):
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+UPLOAD_ATTEMPTS = 3
+UPLOAD_BACKOFF_SECONDS = 5
 
 
 def env_str(key: str, default: str = "") -> str:
@@ -77,16 +82,64 @@ def write_output(name: str, value: str) -> None:
             handle.write(f"{name}={value}\n")
 
 
-def upload_one(tag: str, file: Path, clobber: bool) -> None:
-    cmd = ["gh", "release", "upload", tag, str(file)]
-    if clobber:
-        cmd.append("--clobber")
+def gh_env() -> dict[str, str]:
     env = os.environ.copy()
     if not env.get("GH_TOKEN"):
         token = env.get("GITHUB_TOKEN") or env.get("INPUT_TOKEN") or ""
         if token:
             env["GH_TOKEN"] = token
-    subprocess.run(cmd, check=True, env=env)
+    return env
+
+
+def remote_asset_size(tag: str, name: str) -> int | None:
+    """Size of the fully-uploaded release asset called `name`, or None if absent."""
+    result = subprocess.run(
+        ["gh", "release", "view", tag, "--json", "assets"],
+        capture_output=True,
+        text=True,
+        env=gh_env(),
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        assets = json.loads(result.stdout or "{}").get("assets") or []
+    except json.JSONDecodeError:
+        return None
+    for asset in assets:
+        if asset.get("name") == name and asset.get("state", "uploaded") == "uploaded":
+            return asset.get("size")
+    return None
+
+
+def upload_one(tag: str, file: Path, clobber: bool) -> None:
+    """Upload one asset, tolerating a duplicate that already landed intact.
+
+    The upload API is not idempotent: a request that reached GitHub but whose
+    response was lost is retried by `gh`, and the retry fails with HTTP 422
+    "ReleaseAsset.name already exists" even though the asset uploaded fine. That
+    turned a successful publish into a red job. Treat the upload as done once the
+    release reports an asset of the same name whose size matches the local file;
+    a size mismatch (a genuinely stale asset) still retries and then raises.
+    """
+    cmd = ["gh", "release", "upload", tag, str(file)]
+    if clobber:
+        cmd.append("--clobber")
+    env = gh_env()
+    local_size = file.stat().st_size
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+        sys.stdout.write(result.stdout)
+        if result.returncode == 0:
+            return
+        sys.stderr.write(result.stderr)
+        if remote_asset_size(tag, file.name) == local_size:
+            print(f"::notice::{file.name} already uploaded to {tag} with matching size; treating as success")
+            return
+        if attempt == UPLOAD_ATTEMPTS:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        print(f"::warning::upload of {file.name} failed (attempt {attempt}/{UPLOAD_ATTEMPTS}); retrying")
+        time.sleep(UPLOAD_BACKOFF_SECONDS * attempt)
 
 
 def main() -> None:

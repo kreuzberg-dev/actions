@@ -4,6 +4,12 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.112] - 2026-08-05
+
+### Fixed
+
+- **`upload-release-assets`: a re-uploaded asset no longer fails the job.** The release upload API is not idempotent: when a request reaches GitHub but its response is lost, `gh` retries and the retry returns HTTP 422 `ReleaseAsset.name already exists` even though the asset uploaded correctly — turning a successful publish into a red job (observed on `liter-llm` v1.15.0, where all four C FFI assets were present and `state=uploaded` while the job reported failure). `upload_one` now treats the upload as done when the release reports an asset of the same name whose size matches the local file, and otherwise retries up to three times with backoff before raising. A size mismatch — a genuinely stale asset — still fails. (`upload-release-assets/scripts/upload_assets.py`)
+
 ## [1.8.111] - 2026-08-03
 
 ### Fixed
