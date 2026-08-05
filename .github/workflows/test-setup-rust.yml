@@ -58,3 +58,47 @@ jobs:
 
       - name: Verify target
         run: rustup target list --installed | grep wasm32-unknown-unknown
+
+  # A musl CC/linker exported here wins over cargo-zigbuild's, which only sets those
+  # variables when they are unset — so the two skip paths are a contract, not a detail.
+  test-musl-cc-opt-out:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust with musl target, CC configuration disabled
+        uses: ./setup-rust
+        with:
+          target: x86_64-unknown-linux-musl
+          configure-musl-cc: "false"
+          install-llvm-cov: "false"
+
+      - name: Verify no musl CC or linker was exported
+        run: |
+          rustup target list --installed | grep x86_64-unknown-linux-musl
+          for var in CC_x86_64_unknown_linux_musl AR_x86_64_unknown_linux_musl \
+            CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER; do
+            if [ -n "${!var:-}" ]; then
+              echo "::error::$var is set to '${!var}'; cargo-zigbuild's linker would be shadowed"
+              exit 1
+            fi
+          done
+
+  test-musl-cc-foreign-arch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust with a foreign-arch musl target
+        uses: ./setup-rust
+        with:
+          target: aarch64-unknown-linux-musl
+          install-llvm-cov: "false"
+
+      - name: Verify musl-gcc was not exported for another architecture
+        run: |
+          rustup target list --installed | grep aarch64-unknown-linux-musl
+          if [ -n "${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER:-}" ]; then
+            echo "::error::musl-gcc exported for aarch64 on an x86_64 runner; it cannot cross-compile"
+            exit 1
+          fi

@@ -4,6 +4,23 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.116] - 2026-08-05
+
+### Fixed
+
+- **`setup-rust`: the musl `CC`/linker export no longer defeats zig cross-compilation.** For any
+  `*-unknown-linux-musl` target the action exported `CC_<target>`, `AR_<target>` and
+  `CARGO_TARGET_<TARGET>_LINKER=musl-gcc`. `cargo-zigbuild` and `cargo-xwin` set those with
+  `add_env_if_missing`, so the exported values won and the build linked with `musl-gcc` even when
+  the caller had installed zig and asked `napi build -x` for a zig cross-compile. That cannot link a
+  musl cdylib — rustc passes `-lgcc_s` and Ubuntu's musl sysroot has no `libgcc_s.so.1` — and for a
+  foreign architecture it cannot produce anything at all, since `musl-gcc` is a wrapper around the
+  host gcc. Both of html-to-markdown's musl Node bindings failed this way at publish time. Two
+  changes: a new `configure-musl-cc` input (default `"true"`, set `"false"` to leave the variables
+  to the cross toolchain), and the export is now skipped with a warning when the target
+  architecture differs from the runner's. (`setup-rust/action.yml`,
+  `setup-rust/scripts/add-target.sh`)
+
 ## [1.8.115] - 2026-08-05
 
 ### Fixed

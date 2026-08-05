@@ -41,6 +41,13 @@ inputs:
     description: Add -undefined dynamic_lookup linker flag on macOS (needed for extension builds)
     required: false
     default: "true"
+  configure-musl-cc:
+    description: >-
+      For *-unknown-linux-musl targets, export CC/AR/linker pointing at musl-gcc. Set to "false"
+      when the build cross-compiles through cargo-zigbuild or cargo-xwin, which only set those
+      variables if they are unset and would otherwise be overridden.
+    required: false
+    default: "true"
 
 outputs:
   cache-hit:
@@ -197,7 +204,7 @@ runs:
       if: inputs.target != ''
       shell: bash
       run: |
-        "$GITHUB_ACTION_PATH/scripts/add-target.sh" "${{ inputs.target }}"
+        "$GITHUB_ACTION_PATH/scripts/add-target.sh" "${{ inputs.target }}" "${{ inputs.configure-musl-cc }}"
 
     - name: Clean stale fingerprints
       shell: bash
