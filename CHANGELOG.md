@@ -4,6 +4,16 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.115] - 2026-08-05
+
+### Fixed
+
+- **`reusable-validate`: pyrefly resolves imports against the synced venv.** It type-checks with whatever interpreter it is handed — the runner's system Python — so every third-party import in a binding package read as `missing-import` regardless of what `uv sync` installed. The venv is now put on `PATH`/`VIRTUAL_ENV` after the sync. (`.github/workflows/reusable-validate.yml`)
+
+### Added
+
+- **`reusable-validate`: `python-extra-projects` input.** A binding package outside the root uv workspace has dependencies the root `uv sync` never installs (tree-sitter-language-pack's `packages/python` needs `tree-sitter`). Newline-separated project directories listed here are installed into the venv with `uv pip install -e`. (`.github/workflows/reusable-validate.yml`)
+
 ## [1.8.114] - 2026-08-05
 
 ### Added

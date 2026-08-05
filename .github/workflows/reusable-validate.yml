@@ -23,6 +23,14 @@ on:
         required: false
         type: string
         default: "3.13"
+      python-extra-projects:
+        description: >-
+          Newline-separated project directories to install into the synced venv (`uv pip install -e`).
+          Use for a binding package that is not a member of the root uv workspace, whose third-party
+          imports pyrefly would otherwise fail to resolve.
+        required: false
+        type: string
+        default: ""
       setup-java:
         description: "Install a JDK so poly's checkstyle project check (mvn checkstyle:check) can run against Java bindings."
         required: false
@@ -145,6 +153,36 @@ jobs:
         if: ${{ inputs.setup-python }}
         continue-on-error: true
         run: uv sync || echo "uv sync skipped — non-fatal for poly lint"
+
+      # ~keep pyrefly resolves imports against the interpreter it is handed, which is the
+      # runner's system Python unless the synced venv is put on PATH — so every third-party
+      # import in a binding package reads as `missing-import` no matter what `uv sync` did.
+      - name: Activate the synced venv
+        if: ${{ inputs.setup-python }}
+        run: |
+          if [ -d .venv ]; then
+            echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+            echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          else
+            echo "no .venv to activate"
+          fi
+
+      # ~keep A binding package outside the root uv workspace has its own dependencies that
+      # the root `uv sync` never installs (tree-sitter-language-pack's packages/python needs
+      # `tree-sitter`), leaving pyrefly unable to resolve them.
+      - name: Install extra Python projects
+        if: ${{ inputs.setup-python && inputs.python-extra-projects != '' }}
+        # ~keep Passed through env, not interpolated into the script: a `${{ }}` expansion
+        # inside `run` is substituted before the shell sees it, so any caller-supplied value
+        # would be executed as shell.
+        env:
+          EXTRA_PROJECTS: ${{ inputs.python-extra-projects }}
+        run: |
+          while IFS= read -r project; do
+            [ -z "$project" ] && continue
+            echo "installing $project"
+            uv pip install -e "$project"
+          done <<< "$EXTRA_PROJECTS"
 
       - name: Set up Java
         if: ${{ inputs.setup-java }}
