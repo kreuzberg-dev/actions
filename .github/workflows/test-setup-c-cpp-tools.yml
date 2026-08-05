@@ -1,0 +1,49 @@
+name: Test setup-c-cpp-tools
+on:
+  push:
+    paths:
+      - "setup-c-cpp-tools/**"
+      - ".github/workflows/test-setup-c-cpp-tools.yml"
+  pull_request:
+    paths:
+      - "setup-c-cpp-tools/**"
+      - ".github/workflows/test-setup-c-cpp-tools.yml"
+
+jobs:
+  # clang-format decides whether `poly fmt --check` passes, so Linux and macOS must resolve the
+  # exact same version. They previously came from apt (18) and brew (22), which format C#
+  # nullable types differently — a tree formatted on one platform failed CI on the other.
+  test-clang-format-pinned:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install C/C++ tools
+        uses: ./setup-c-cpp-tools
+        with:
+          clang-format-version: "22.1.8"
+
+      - name: Verify the pinned clang-format is the one on PATH
+        shell: bash
+        run: |
+          clang-format --version
+          clang-format --version | grep -q "22\.1\.8"
+
+      - name: Verify C# nullable types survive a format round-trip
+        shell: bash
+        run: |
+          cat >sample.cs <<'EOF'
+          class Sample {
+            void Run() {
+              object? inner;
+              inner = null;
+            }
+          }
+          EOF
+          clang-format sample.cs >formatted.cs
+          cat formatted.cs
+          grep -q "object? inner;" formatted.cs

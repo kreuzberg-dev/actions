@@ -6,10 +6,13 @@ INSTALL_CLANG_FORMAT="${INSTALL_CLANG_FORMAT:-true}"
 INSTALL_SHELLCHECK="${INSTALL_SHELLCHECK:-true}"
 
 brew_packages=(cppcheck)
-[[ "$INSTALL_CLANG_FORMAT" == "true" ]] && brew_packages+=(clang-format)
 [[ "$INSTALL_SHELLCHECK" == "true" ]] && brew_packages+=(shellcheck)
 
 brew install "${brew_packages[@]}" || brew upgrade "${brew_packages[@]}"
+
+if [[ "$INSTALL_CLANG_FORMAT" == "true" ]]; then
+	"$(dirname "${BASH_SOURCE[0]}")/clang-format.sh"
+fi
 
 installed_version="$(cppcheck --version | awk '{print $2}')"
 if [[ "$installed_version" != "$CPPCHECK_VERSION" ]]; then

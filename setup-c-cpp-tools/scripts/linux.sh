@@ -6,12 +6,15 @@ INSTALL_CLANG_FORMAT="${INSTALL_CLANG_FORMAT:-true}"
 INSTALL_SHELLCHECK="${INSTALL_SHELLCHECK:-true}"
 
 apt_packages=()
-[[ "$INSTALL_CLANG_FORMAT" == "true" ]] && apt_packages+=(clang-format)
 [[ "$INSTALL_SHELLCHECK" == "true" ]] && apt_packages+=(shellcheck)
 
 if ((${#apt_packages[@]} > 0)); then
 	sudo apt-get update -qq
 	sudo apt-get install -y --no-install-recommends "${apt_packages[@]}"
+fi
+
+if [[ "$INSTALL_CLANG_FORMAT" == "true" ]]; then
+	"$(dirname "${BASH_SOURCE[0]}")/clang-format.sh"
 fi
 
 installed_version=""

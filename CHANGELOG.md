@@ -4,6 +4,25 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.118] - 2026-08-05
+
+### Fixed
+
+- **`setup-c-cpp-tools`: clang-format is pinned to one version on every platform.** It came from
+  `apt` on Linux and `brew` on macOS, which currently ship 18 and 22. Those disagree about C#
+  nullable types — 18 rewrites `object? inner;` to `object ? inner;` — and clang-format's output is
+  what `poly fmt --check` compares against, so a tree formatted on macOS failed CI on Linux with no
+  way to reproduce it locally (seen on crawlberg, whose CI Lint failed on three generated C# files
+  that were already correct). Both platforms now install the PyPI `clang-format` wheel at a pinned
+  `clang-format-version` (default `22.1.8`) into a venv, which also avoids PEP 668 on the runners'
+  system python. cppcheck was already pinned this way; clang-format was the outlier.
+  (`setup-c-cpp-tools/action.yml`, `setup-c-cpp-tools/scripts/{clang-format,linux,macos}.sh`)
+
+### Added
+
+- `test-setup-c-cpp-tools` workflow: asserts both runners resolve the pinned clang-format and that
+  a C# nullable type survives a format round-trip.
+
 ## [1.8.117] - 2026-08-05
 
 ### Fixed

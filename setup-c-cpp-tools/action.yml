@@ -4,15 +4,23 @@ description: |
   clang-format, shellcheck). Pins cppcheck to the version expected by
   xberg-io/pre-commit-hooks (currently 2.20.0) — Ubuntu's stock package is
   too old, so cppcheck is built from source via CMake when not already on PATH
-  at the expected version.
+  at the expected version. clang-format is pinned to the same version on every
+  platform, since its output decides whether `poly fmt --check` passes.
 
 inputs:
   cppcheck-version:
     description: cppcheck version to install (must match the pin in xberg-io/pre-commit-hooks)
     required: false
     default: "2.20.0"
+  clang-format-version:
+    description: >-
+      clang-format version to install, from the PyPI wheel so every platform gets the same binary.
+      Its output gates `poly fmt --check`, so this must stay pinned — apt and brew disagree, and
+      clang-format 18 misformats C# nullable types.
+    required: false
+    default: "22.1.8"
   install-clang-format:
-    description: Install clang-format via apt (Linux only).
+    description: Install clang-format.
     required: false
     default: "true"
   install-shellcheck:
@@ -28,6 +36,7 @@ runs:
       shell: bash
       env:
         CPPCHECK_VERSION: ${{ inputs.cppcheck-version }}
+        CLANG_FORMAT_VERSION: ${{ inputs.clang-format-version }}
         INSTALL_CLANG_FORMAT: ${{ inputs.install-clang-format }}
         INSTALL_SHELLCHECK: ${{ inputs.install-shellcheck }}
       run: |
@@ -38,6 +47,7 @@ runs:
       shell: bash
       env:
         CPPCHECK_VERSION: ${{ inputs.cppcheck-version }}
+        CLANG_FORMAT_VERSION: ${{ inputs.clang-format-version }}
         INSTALL_CLANG_FORMAT: ${{ inputs.install-clang-format }}
         INSTALL_SHELLCHECK: ${{ inputs.install-shellcheck }}
       run: |
