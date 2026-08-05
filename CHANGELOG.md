@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.117] - 2026-08-05
+
 ### Fixed
 
 - **`install-task`: resolving `latest` no longer fails on the anonymous API rate limit.** The action
