@@ -4,6 +4,17 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`install-task`: resolving `latest` no longer fails on the anonymous API rate limit.** The action
+  never passed a token, so `api.github.com` was called unauthenticated at 60 requests/hour per
+  runner IP — shared by every job on it. On Windows that was fatal: the script had no retry and no
+  fallback, so `Install Task` died with `API rate limit exceeded` (hit on an html-to-markdown Node
+  build). A `github-token` input (default `${{ github.token }}`) now authenticates the lookup on
+  both platforms, and the Windows script falls back to the credential-free `/releases/latest`
+  redirect, downloads the stable asset URL directly instead of reading it from release metadata,
+  and retries the download. (`install-task/action.yml`, `install-task/scripts/windows.ps1`)
+
 ## [1.8.116] - 2026-08-05
 
 ### Fixed

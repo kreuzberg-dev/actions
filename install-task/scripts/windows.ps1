@@ -20,22 +20,61 @@ if ($env:GITHUB_TOKEN) {
   $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
 }
 
-if ($taskVersion -eq "latest") {
-  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/go-task/task/releases/latest" -Headers $headers
-} else {
-  if (-not $taskVersion.StartsWith("v")) {
-    $taskVersion = "v$taskVersion"
+# ~keep Unauthenticated api.github.com allows 60 requests/hour per source IP, shared by every job
+# on that runner, so resolving "latest" through the API fails outright often enough to be a routine
+# CI flake. Fall back to the /releases/latest redirect: a plain github.com request under a separate,
+# far higher limit that needs no credentials.
+function Resolve-LatestTag {
+  try {
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/go-task/task/releases/latest" -Headers $headers
+    return $release.tag_name
+  } catch {
+    Write-Host "GitHub API lookup failed ($($_.Exception.Message)); falling back to the releases/latest redirect"
   }
-  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/go-task/task/releases/tags/$taskVersion" -Headers $headers
+
+  $response = Invoke-WebRequest -Uri "https://github.com/go-task/task/releases/latest" `
+    -MaximumRedirection 0 -SkipHttpErrorCheck
+  $location = $response.Headers["Location"]
+  if ($location) {
+    $tag = ([string]($location | Select-Object -First 1)).Split("/")[-1]
+    if ($tag) {
+      return $tag
+    }
+  }
+
+  throw "Could not resolve the latest Task release"
 }
 
-$asset = $release.assets | Where-Object { $_.name -match "windows_amd64\.zip" } | Select-Object -First 1
-if (-not $asset) {
-  throw "Could not find Windows amd64 release asset for Task $($release.tag_name)"
+if ($taskVersion -eq "latest") {
+  $resolvedVersion = Resolve-LatestTag
+} else {
+  $resolvedVersion = $taskVersion
+  if (-not $resolvedVersion.StartsWith("v")) {
+    $resolvedVersion = "v$resolvedVersion"
+  }
 }
 
+Write-Host "Installing Task $resolvedVersion"
+
+# The asset name is stable across releases, so the download itself needs no API call. ~keep
+$downloadUrl = "https://github.com/go-task/task/releases/download/$resolvedVersion/task_windows_amd64.zip"
 $zipPath = "$taskBinDir\task.zip"
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+
+$maxAttempts = 3
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+  try {
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
+    break
+  } catch {
+    if ($attempt -eq $maxAttempts) {
+      throw "Failed to download $downloadUrl after $maxAttempts attempts: $($_.Exception.Message)"
+    }
+    $wait = [Math]::Pow(2, $attempt)
+    Write-Host "Download attempt $attempt failed; retrying in ${wait}s"
+    Start-Sleep -Seconds $wait
+  }
+}
+
 Expand-Archive -Path $zipPath -DestinationPath $taskBinDir -Force
 Remove-Item $zipPath
 

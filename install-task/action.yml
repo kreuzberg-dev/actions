@@ -9,17 +9,28 @@ inputs:
     description: Directory where the task binary should be installed.
     required: false
     default: ""
+  github-token:
+    description: >-
+      Token used to authenticate the release lookup. Unauthenticated api.github.com allows 60
+      requests/hour per runner IP, shared across every job on it, which makes resolving "latest"
+      a routine CI flake.
+    required: false
+    default: ${{ github.token }}
 runs:
   using: composite
   steps:
     - name: Setup Task (Unix)
       if: runner.os != 'Windows'
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         "${{ github.action_path }}/scripts/unix.sh" "${{ inputs.version }}" "${{ inputs.install-dir }}"
 
     - name: Setup Task (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         & '${{ github.action_path }}/scripts/windows.ps1' '${{ inputs.version }}' '${{ inputs.install-dir }}'

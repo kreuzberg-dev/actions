@@ -27,3 +27,25 @@ jobs:
         run: |
           task --version
           which task || where task
+
+  # The pinned path resolves no release metadata at all; it only ever broke on Windows, where the
+  # script used to hard-fail on a rate-limited API call with no fallback.
+  test-pinned-version:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Task (pinned version)
+        uses: ./install-task
+        with:
+          version: "3.51.1"
+
+      - name: Verify the pinned version was installed
+        shell: bash
+        run: |
+          task --version
+          task --version | grep -q "3.51.1"
