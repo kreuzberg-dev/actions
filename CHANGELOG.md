@@ -4,6 +4,13 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.113] - 2026-08-05
+
+### Fixed
+
+- **`Unit tests / lint` is green again.** `lint.select = ["ALL"]` picked up ruff's new `CPY001` (missing copyright notice) on a dependency bump, failing every Python file in the repo — 73 errors. `CPY` is now ignored in `pyproject.toml`, matching what `poly.toml` already did. Also removed the two `# noqa: S310` directives ruff now reports as unused (`RUF100`) and made the boolean release flags of `create_release`/`update_release` keyword-only so they stay under the positional-argument limit (`PLR0917`). (`pyproject.toml`, `publish-github-release/scripts/`, `publish-nuget/scripts/publish.py`)
+- **`upload-release-assets`: `remote_asset_size` no longer returns an implicit `Any`.** The size read out of the API payload is now type-narrowed before it is returned, which `pyrefly` rejected. (`upload-release-assets/scripts/upload_assets.py`)
+
 ## [1.8.112] - 2026-08-05
 
 ### Fixed
