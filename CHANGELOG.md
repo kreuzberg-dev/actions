@@ -17,6 +17,18 @@ All notable changes to xberg-io/actions are documented in this file.
   the npm output is always printed on the skip path, and both publish modes confirm the version is
   retrievable from `registry.npmjs.org` before reporting success.
   (`publish-npm/scripts/publish.py`)
+- **`reusable-validate` installs the pinned clang-format.** The workflow set up Rust, Python, Java,
+  Go, Ruby, Dart, and Elixir but never a C toolchain, so `poly fmt --check` used the runner image's
+  clang-format 18 — the exact version 1.8.118 pinned away from. crawlberg's CI Lint failed on three
+  generated C# files that are correct under the pinned 22.1.8. Installed unconditionally: an absent
+  formatter makes poly skip those files silently, which is how drift reaches `main`.
+  (`.github/workflows/reusable-validate.yml`)
+
+### Added
+
+- **`setup-c-cpp-tools` gains an `install-cppcheck` input** (default `true`). Jobs that only need
+  clang-format can skip cppcheck, whose Linux path builds from source on a version miss.
+  (`setup-c-cpp-tools/action.yml`, `setup-c-cpp-tools/scripts/{linux,macos}.sh`)
 
 ## [1.8.118] - 2026-08-05
 

@@ -23,6 +23,12 @@ inputs:
     description: Install clang-format.
     required: false
     default: "true"
+  install-cppcheck:
+    description: >-
+      Install cppcheck. Turn this off for jobs that only need clang-format — on Linux a
+      version miss builds cppcheck from source, which costs minutes.
+    required: false
+    default: "true"
   install-shellcheck:
     description: Install shellcheck via apt (Linux only).
     required: false
@@ -38,6 +44,7 @@ runs:
         CPPCHECK_VERSION: ${{ inputs.cppcheck-version }}
         CLANG_FORMAT_VERSION: ${{ inputs.clang-format-version }}
         INSTALL_CLANG_FORMAT: ${{ inputs.install-clang-format }}
+        INSTALL_CPPCHECK: ${{ inputs.install-cppcheck }}
         INSTALL_SHELLCHECK: ${{ inputs.install-shellcheck }}
       run: |
         "${{ github.action_path }}/scripts/linux.sh"
@@ -49,6 +56,7 @@ runs:
         CPPCHECK_VERSION: ${{ inputs.cppcheck-version }}
         CLANG_FORMAT_VERSION: ${{ inputs.clang-format-version }}
         INSTALL_CLANG_FORMAT: ${{ inputs.install-clang-format }}
+        INSTALL_CPPCHECK: ${{ inputs.install-cppcheck }}
         INSTALL_SHELLCHECK: ${{ inputs.install-shellcheck }}
       run: |
         "${{ github.action_path }}/scripts/macos.sh"

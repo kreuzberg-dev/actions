@@ -233,6 +233,18 @@ jobs:
           elixir-version: ${{ inputs.elixir-version }}
           otp-version: ${{ inputs.otp-version }}
 
+      # ~keep poly delegates C, C++, and C# formatting to clang-format, so its version decides
+      # whether `poly fmt --check` passes. Without this the job silently used the runner image's
+      # clang-format 18, which rewrites `object? x` to `object ? x` and failed correct generated
+      # C#. Installed unconditionally: an absent formatter makes poly skip those files instead,
+      # which is how drift reaches main in the first place. Nothing here runs cppcheck or
+      # shellcheck, and on Linux a cppcheck version miss builds it from source.
+      - name: Set up clang-format
+        uses: xberg-io/actions/setup-c-cpp-tools@v1
+        with:
+          install-cppcheck: "false"
+          install-shellcheck: "false"
+
       - name: Resolve latest poly version
         id: poly-latest
         if: ${{ inputs.poly-version == '' }}

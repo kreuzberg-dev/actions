@@ -22,10 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # clang-format-only is the shape reusable-validate.yml uses; on Linux a cppcheck version
+      # miss builds it from source, and nothing in this job needs cppcheck or shellcheck.
       - name: Install C/C++ tools
         uses: ./setup-c-cpp-tools
         with:
           clang-format-version: "22.1.8"
+          install-cppcheck: "false"
+          install-shellcheck: "false"
 
       - name: Verify the pinned clang-format is the one on PATH
         shell: bash
