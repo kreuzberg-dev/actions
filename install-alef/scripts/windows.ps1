@@ -46,7 +46,10 @@ function Build-FromSource {
 function Install-FromRelease {
   param([string] $version)
   $zipPath = "$alefBinDir\alef.zip"
-  $directUrl = "https://github.com/xberg-io/alef/releases/download/v$version/alef-x86_64-pc-windows-gnu.zip"
+  # alef publishes the msvc target (its release matrix builds on windows-latest, whose default
+  # toolchain is msvc); the -gnu name this used to request never existed, so every Windows run
+  # fell through to the API lookup below. ~keep
+  $directUrl = "https://github.com/xberg-io/alef/releases/download/v$version/alef-x86_64-pc-windows-msvc.zip"
 
   try {
     Invoke-WebRequest -Uri $directUrl -OutFile $zipPath
