@@ -187,7 +187,7 @@ def _fake_urlopen(status: int):
         def __exit__(self, *_args) -> bool:
             return False
 
-    def _urlopen(request, timeout=None):  # noqa: ARG001
+    def _urlopen(request, timeout=None):
         if status >= 400:
             raise npm_mod.urllib.error.HTTPError(request.full_url, status, "err", {}, None)
         return _Response()
