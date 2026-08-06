@@ -4,6 +4,29 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.122] - 2026-08-06
+
+### Fixed
+
+- **The title validators guide outside contributors instead of failing them.** A non-conforming issue
+  or PR title produced a red X and no feedback in the thread itself, and because `apply-label` and
+  `add-to-project` both `needs:` the title job, an outside contributor's issue was dropped from
+  labeling and off the project board entirely. The hard failure now applies only when
+  `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR`; anyone else gets a single guidance
+  comment (created once, updated thereafter via a hidden marker), a `needs-triage` label, and a green
+  run. Every mutation is best-effort, since a fork PR runs with a read-only `GITHUB_TOKEN` in exactly
+  this case and a failed courtesy comment must not restore the red X.
+  (`.github/workflows/reusable-validate-issues.yml`, `.github/workflows/reusable-validate-pr.yml`)
+
+## [1.8.121] - 2026-08-06
+
+### Fixed
+
+- **`install-alef` requests the msvc Windows archive.** alef builds its Windows release on
+  `windows-latest`, whose default toolchain is msvc, so the `-gnu` asset name this asked for has
+  never existed — every Windows run 404'd and fell through to the slower release-API lookup.
+  (`install-alef/scripts/windows.ps1`)
+
 ## [1.8.120] - 2026-08-06
 
 ### Fixed
