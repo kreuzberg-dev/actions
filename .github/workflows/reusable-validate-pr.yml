@@ -5,7 +5,8 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
+  issues: write
 
 jobs:
   validate-pr-title:
@@ -15,19 +16,71 @@ jobs:
       - name: Check conventional commit format
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          if ! echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|chore|refactor|test|ci|perf|build|style|revert)(\(.+\))?: .+'; then
-            echo "::error::PR title must follow conventional commit format: type(scope): description"
-            echo ""
-            echo "Valid types: feat, fix, docs, chore, refactor, test, ci, perf, build, style, revert"
-            echo "Examples:"
-            echo "  feat: add user authentication"
-            echo "  fix(parser): handle empty input"
-            echo "  docs: update API guide"
-            echo ""
-            echo "Got: $PR_TITLE"
-            exit 1
+          allowed='^(feat|fix|docs|chore|refactor|test|ci|perf|build|style|revert)(\(.+\))?: .+'
+          if echo "$PR_TITLE" | grep -qE "$allowed"; then
+            exit 0
           fi
+
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER | MEMBER | COLLABORATOR)
+              echo "::error::PR title must follow conventional commit format: type(scope): description"
+              echo ""
+              echo "Valid types: feat, fix, docs, chore, refactor, test, ci, perf, build, style, revert"
+              echo "Examples:"
+              echo "  feat: add user authentication"
+              echo "  fix(parser): handle empty input"
+              echo "  docs: update API guide"
+              echo ""
+              echo "Got: $PR_TITLE"
+              exit 1
+              ;;
+          esac
+
+          # ~keep Outside contributors get guidance instead of a hard failure — a red X with
+          # no in-PR feedback just leaves them stuck (see crawlberg's "Validate PR" run 28747767895).
+          # Every mutation below is best-effort: a fork PR runs with a read-only GITHUB_TOKEN
+          # regardless of the `permissions:` block, so commenting and labelling will 403 in exactly
+          # the case this path exists for. A failed courtesy comment must not turn the red X back on.
+          echo "::warning::PR title does not follow conventional format; posting guidance comment instead of failing (author association: $AUTHOR_ASSOCIATION)"
+
+          gh label create needs-triage --force --color FBCA04 \
+            --description "Needs maintainer triage (e.g. non-conforming title)" --repo "$REPO" \
+            || echo "::warning::Could not create the needs-triage label (token may be read-only on a fork PR)"
+
+          # shellcheck disable=SC2016  # ~keep backticks below are literal markdown code spans, not command substitution
+          body=$(printf '%s\n' \
+            '<!-- xberg-title-convention -->' \
+            "Thanks for the contribution! This PR's title doesn't follow this repository's conventional commit format, so it won't block CI — but a maintainer will need to review the title before merge." \
+            '' \
+            'Expected format: `type(scope): description`' \
+            '' \
+            'Valid types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`, `style`, `revert`' \
+            '' \
+            'Examples:' \
+            '- `feat: add user authentication`' \
+            '- `fix(parser): handle empty input`' \
+            '' \
+            'No action is required from you — a maintainer will handle this before merge.')
+
+          existing_comment_id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("<!-- xberg-title-convention -->"))][0].id // empty' || true)
+
+          if [ -n "$existing_comment_id" ]; then
+            gh api "repos/$REPO/issues/comments/$existing_comment_id" -X PATCH -f body="$body" >/dev/null \
+              || echo "::warning::Could not update the existing title-convention comment"
+          else
+            gh pr comment "$PR_URL" --body "$body" \
+              || echo "::warning::Could not post the title-convention comment"
+          fi
+
+          gh pr edit "$PR_URL" --add-label needs-triage \
+            || echo "::warning::Could not apply the needs-triage label"
 
   validate-commits:
     name: Commit Messages

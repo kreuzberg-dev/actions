@@ -25,23 +25,75 @@ jobs:
         id: check
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build)(\([a-z0-9._-]+\))?: .{8,}$'
-          if ! echo "$ISSUE_TITLE" | grep -qE "$allowed"; then
-            echo "::error::Issue title must match: <type>: <description with at least 8 chars>"
-            echo ""
-            echo "Valid types: bug, feat, docs, chore, refactor, test, ci, perf, build"
-            echo ""
-            echo "Examples:"
-            echo "  bug: extraction returns empty result for password-protected PDF"
-            echo "  feat: add streaming output mode to MCP server"
-            echo "  docs: explain caching invalidation rules"
-            echo ""
-            echo "Got: $ISSUE_TITLE"
-            exit 1
+          if echo "$ISSUE_TITLE" | grep -qE "$allowed"; then
+            prefix=$(echo "$ISSUE_TITLE" | cut -d: -f1)
+            echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          prefix=$(echo "$ISSUE_TITLE" | cut -d: -f1)
-          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER | MEMBER | COLLABORATOR)
+              echo "::error::Issue title must match: <type>: <description with at least 8 chars>"
+              echo ""
+              echo "Valid types: bug, feat, docs, chore, refactor, test, ci, perf, build"
+              echo ""
+              echo "Examples:"
+              echo "  bug: extraction returns empty result for password-protected PDF"
+              echo "  feat: add streaming output mode to MCP server"
+              echo "  docs: explain caching invalidation rules"
+              echo ""
+              echo "Got: $ISSUE_TITLE"
+              exit 1
+              ;;
+          esac
+
+          # ~keep Outside contributors get guidance instead of a hard failure — a red X with
+          # no in-issue feedback just leaves them stuck (see xberg-io/tree-sitter-language-pack#175),
+          # and because apply-label and add-to-project both `needs:` this job, failing here dropped
+          # their issues off the board entirely. Every mutation below is best-effort so a failed
+          # courtesy comment cannot turn the red X back on.
+          echo "::warning::Issue title does not follow conventional format; posting guidance comment instead of failing (author association: $AUTHOR_ASSOCIATION)"
+          echo "prefix=" >> "$GITHUB_OUTPUT"
+
+          gh label create needs-triage --force --color FBCA04 \
+            --description "Needs maintainer triage (e.g. non-conforming title)" --repo "$REPO" \
+            || echo "::warning::Could not create the needs-triage label"
+
+          # shellcheck disable=SC2016  # ~keep backticks below are literal markdown code spans, not command substitution
+          body=$(printf '%s\n' \
+            '<!-- xberg-title-convention -->' \
+            "Thanks for opening this issue! The title doesn't follow this repository's conventional format, so it won't block anything — but a maintainer will need to review and retitle it manually." \
+            '' \
+            'Expected format: `<type>: <description with at least 8 chars>`' \
+            '' \
+            'Valid types: `bug`, `feat`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`' \
+            '' \
+            'Examples:' \
+            '- `bug: extraction returns empty result for password-protected PDF`' \
+            '- `feat: add streaming output mode to MCP server`' \
+            '' \
+            'No action is required from you — a maintainer will handle this.')
+
+          existing_comment_id=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("<!-- xberg-title-convention -->"))][0].id // empty' || true)
+
+          if [ -n "$existing_comment_id" ]; then
+            gh api "repos/$REPO/issues/comments/$existing_comment_id" -X PATCH -f body="$body" >/dev/null \
+              || echo "::warning::Could not update the existing title-convention comment"
+          else
+            gh issue comment "$ISSUE_URL" --body "$body" \
+              || echo "::warning::Could not post the title-convention comment"
+          fi
+
+          gh issue edit "$ISSUE_URL" --add-label needs-triage \
+            || echo "::warning::Could not apply the needs-triage label"
 
   apply-label:
     name: Apply Canonical Label
