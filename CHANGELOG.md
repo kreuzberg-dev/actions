@@ -24,6 +24,11 @@ All notable changes to xberg-io/actions are documented in this file.
   formatter makes poly skip those files silently, which is how drift reaches `main`.
   (`.github/workflows/reusable-validate.yml`)
 
+- **`publish-gleam` defaults to Gleam 1.18.** `gleam new` resolves `gleam_stdlib` at its latest
+  release, which requires a newer compiler than the pinned 1.6 — `gleam build` failed with
+  "Incompatible Gleam version", and the dry-run test has been red since at least 2026-08-05.
+  (`publish-gleam/action.yml`, `.github/workflows/test-publish-actions.yml`)
+
 ### Added
 
 - **`setup-c-cpp-tools` gains an `install-cppcheck` input** (default `true`). Jobs that only need

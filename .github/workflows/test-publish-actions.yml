@@ -181,7 +181,9 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
-          gleam-version: "1.6"
+          # ~keep `gleam new` resolves gleam_stdlib at its latest release, which now requires a
+          # newer compiler than 1.6 — `gleam build` failed with "Incompatible Gleam version".
+          gleam-version: "1.18"
 
       - name: Scaffold a Gleam package
         run: gleam new pkg

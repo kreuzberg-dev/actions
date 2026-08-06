@@ -21,7 +21,7 @@ inputs:
   gleam-version:
     description: "Gleam version (passed to erlef/setup-beam)"
     required: false
-    default: "1.6"
+    default: "1.18"
   replace:
     description: "Allow replacing an existing published version (Hex --replace flag)"
     required: false

@@ -52,7 +52,7 @@ jobs:
 - uses: erlef/setup-beam@v1
   with:
     otp-version: '27'
-    gleam-version: '1.6'
+    gleam-version: '1.18'
 - uses: xberg-io/actions/publish-gleam@v1
   env:
     HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
@@ -68,7 +68,7 @@ jobs:
 | `package-dir` | no | `.` | Directory containing `gleam.toml`. |
 | `setup-beam` | no | `true` | Whether to install Erlang/OTP + Gleam via `erlef/setup-beam@v1`. |
 | `otp-version` | no | `27` | Erlang/OTP version. |
-| `gleam-version` | no | `1.6` | Gleam version. |
+| `gleam-version` | no | `1.18` | Gleam version. |
 | `replace` | no | `true` | Pass `--replace` to allow replacing an existing version. |
 | `dry-run` | no | `false` | Skip the actual publish; print what would happen. |
 
