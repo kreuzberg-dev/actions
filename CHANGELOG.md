@@ -34,7 +34,6 @@ All notable changes to xberg-io/actions are documented in this file.
   generated C# files that are correct under the pinned 22.1.8. Installed unconditionally: an absent
   formatter makes poly skip those files silently, which is how drift reaches `main`.
   (`.github/workflows/reusable-validate.yml`)
-
 - **`publish-gleam` defaults to Gleam 1.18.** `gleam new` resolves `gleam_stdlib` at its latest
   release, which requires a newer compiler than the pinned 1.6 — `gleam build` failed with
   "Incompatible Gleam version", and the dry-run test has been red since at least 2026-08-05.
