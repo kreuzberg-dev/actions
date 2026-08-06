@@ -4,6 +4,17 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.120] - 2026-08-06
+
+### Fixed
+
+- **`reusable-validate` resolves the Elixir binding's deps.** poly delegates Elixir formatting to
+  `mix format`, which reads the project's `.formatter.exs` — and `import_deps: [:rustler]` there
+  needs the deps on disk. Without them `mix format` errors, poly logs a warning and treats the file
+  as unchanged, so Elixir drift passes CI unnoticed. Adds a best-effort `mix deps.get` and an
+  `elixir-working-directory` input (default `packages/elixir`), mirroring the existing `dart pub get`
+  and `uv sync` steps. (`.github/workflows/reusable-validate.yml`)
+
 ## [1.8.119] - 2026-08-06
 
 ### Fixed

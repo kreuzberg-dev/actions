@@ -111,6 +111,11 @@ on:
         required: false
         type: string
         default: "28"
+      elixir-working-directory:
+        description: "Directory holding the Elixir binding's mix.exs."
+        required: false
+        type: string
+        default: "packages/elixir"
       runner:
         description: "Runner label(s) to run on. Defaults to GitHub-hosted; pass a self-hosted label to run on org runners."
         required: false
@@ -232,6 +237,16 @@ jobs:
         with:
           elixir-version: ${{ inputs.elixir-version }}
           otp-version: ${{ inputs.otp-version }}
+
+      # ~keep poly delegates Elixir formatting to `mix format`, which reads the project's
+      # `.formatter.exs` — and `import_deps: [:rustler]` there needs the deps on disk. Without
+      # this, `mix format` errors, poly logs a warning and treats the file as unchanged, and
+      # Elixir drift passes CI unnoticed. Best-effort for the same reason `uv sync` is.
+      - name: Resolve Elixir deps (best-effort)
+        if: ${{ inputs.setup-elixir }}
+        continue-on-error: true
+        working-directory: ${{ inputs.elixir-working-directory }}
+        run: mix deps.get || echo "mix deps.get skipped — non-fatal for poly"
 
       # ~keep poly delegates C, C++, and C# formatting to clang-format, so its version decides
       # whether `poly fmt --check` passes. Without this the job silently used the runner image's
