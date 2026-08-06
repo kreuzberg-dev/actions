@@ -12,10 +12,17 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
+# ~keep Matches only npm's version-conflict wording. A bare `already exists` also matches
+# Sigstore/Rekor's "entry already exists" and other unrelated failures, which is how
+# @xberg-io/html-to-markdown 3.10.5 and 3.10.6 were reported as published without ever
+# reaching the registry.
 ALREADY_PUBLISHED_PATTERN = re.compile(
-    r"previously published|cannot publish over|already exists",
+    r"previously published|cannot publish over",
     re.IGNORECASE,
 )
 
@@ -26,6 +33,11 @@ TRANSIENT_PUBLISH_PATTERN = re.compile(
 )
 MAX_PUBLISH_RETRIES = 4
 PUBLISH_RETRY_BACKOFF_SECONDS = 5
+
+REGISTRY_CHECK_ATTEMPTS = 5
+REGISTRY_CHECK_BACKOFF_SECONDS = 3
+REGISTRY_CHECK_TIMEOUT_SECONDS = 30
+HTTP_OK = 200
 
 SETUP_NODE_PLACEHOLDER = "XXXXX-XXXXX-XXXXX-XXXXX"
 
@@ -110,6 +122,52 @@ def is_platform_package(tgz_path: Path) -> bool:
                     return bool(pkg.get("os") or pkg.get("cpu"))
     except Exception:
         pass
+    return False
+
+
+def read_package_identity(tgz_path: Path) -> tuple[str, str] | None:
+    """Return (name, version) from a .tgz's top-level package.json, or None if unreadable."""
+    import tarfile
+
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tar:
+            for member in tar.getmembers():
+                if member.name.endswith("package.json") and member.name.count("/") == 1:
+                    extracted = tar.extractfile(member)
+                    if extracted is None:
+                        continue
+                    pkg = json.loads(extracted.read().decode("utf-8"))
+                    name, version = pkg.get("name"), pkg.get("version")
+                    if name and version:
+                        return name, version
+    except (OSError, tarfile.TarError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return None
+
+
+def registry_has_version(package: str, version: str) -> bool:
+    """Poll the npm registry until `package@version` is retrievable.
+
+    npm reports success for publishes that never land — a Sigstore failure, a
+    trusted-publisher mismatch, or a misclassified error all exit the CLI without the
+    version reaching the registry. Confirming against the registry is the only check
+    that distinguishes "published" from "claimed to publish".
+    """
+    encoded = urllib.parse.quote(package, safe="")
+    url = f"https://registry.npmjs.org/{encoded}/{version}"
+    for attempt in range(1, REGISTRY_CHECK_ATTEMPTS + 1):
+        request = urllib.request.Request(url, headers={"User-Agent": "publish-npm/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=REGISTRY_CHECK_TIMEOUT_SECONDS) as response:  # noqa: S310
+                if response.status == HTTP_OK:
+                    return True
+        except urllib.error.HTTPError as error:
+            if error.code not in (404, 429) and error.code < 500:
+                return False
+        except (urllib.error.URLError, OSError, TimeoutError):
+            pass
+        if attempt < REGISTRY_CHECK_ATTEMPTS:
+            time.sleep(REGISTRY_CHECK_BACKOFF_SECONDS * attempt)
     return False
 
 
@@ -225,10 +283,20 @@ def main() -> None:
             print("Published successfully")
         elif is_already_published(output):
             print("Package already published, skipping")
+            print(output, file=sys.stderr)
         else:
             print("Error publishing:", file=sys.stderr)
             print(output, file=sys.stderr)
             sys.exit(1)
+
+        if not dry_run:
+            manifest = json.loads((pkg_path / "package.json").read_text())
+            name, version = manifest["name"], manifest["version"]
+            if not registry_has_version(name, version):
+                print(f"Error: {name}@{version} is absent from the npm registry after publish", file=sys.stderr)
+                print(output, file=sys.stderr)
+                sys.exit(1)
+            print(f"Confirmed {name}@{version} on the npm registry")
         return
 
     pkgs_path = Path(packages_dir)
@@ -260,14 +328,24 @@ def main() -> None:
 
         if exit_code == 0:
             print(f"  Published {name}")
-            published += 1
         elif is_already_published(output):
             print(f"  {name} already published, skipping")
-            published += 1
+            print(output, file=sys.stderr)
         else:
             print(f"  Error publishing {name}:", file=sys.stderr)
             print(output, file=sys.stderr)
             failed += 1
+            continue
+
+        identity = read_package_identity(tgz)
+        if not dry_run and identity and not registry_has_version(*identity):
+            print(
+                f"  Error: {identity[0]}@{identity[1]} is absent from the npm registry after publish", file=sys.stderr
+            )
+            print(output, file=sys.stderr)
+            failed += 1
+            continue
+        published += 1
 
     print(f"Published: {published}, Failed: {failed}, Skipped: {skipped}")
 

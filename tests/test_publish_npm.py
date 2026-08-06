@@ -70,12 +70,14 @@ def test_is_already_published_cannot_publish():
     assert npm_mod.is_already_published("403 Forbidden: cannot publish over existing version") is True
 
 
-def test_is_already_published_already_exists():
-    assert npm_mod.is_already_published("already exists in the registry") is True
-
-
 def test_is_already_published_false():
     assert npm_mod.is_already_published("Error: network timeout") is False
+
+
+def test_sigstore_entry_already_exists_is_not_already_published():
+    """A Rekor conflict must not be read as a version conflict — it means the publish failed."""
+    output = "npm error 409 Conflict - POST https://rekor.sigstore.dev/api/v1/log/entries - entry already exists"
+    assert npm_mod.is_already_published(output) is False
 
 
 def test_find_tgz_files(tmp_path: Path):
@@ -142,3 +144,52 @@ def test_platform_package_with_binary_is_published(tmp_path: Path):
         with_node=True,
     )
     assert _should_skip(tgz) is False
+
+
+def test_read_package_identity(tmp_path: Path):
+    tgz = _make_tgz(tmp_path / "p.tgz", {"name": "@s/p", "version": "1.2.3"})
+    assert npm_mod.read_package_identity(tgz) == ("@s/p", "1.2.3")
+
+
+def test_read_package_identity_missing_version(tmp_path: Path):
+    tgz = _make_tgz(tmp_path / "p.tgz", {"name": "@s/p"})
+    assert npm_mod.read_package_identity(tgz) is None
+
+
+def test_read_package_identity_unreadable(tmp_path: Path):
+    corrupt = tmp_path / "p.tgz"
+    corrupt.write_bytes(b"not a tarball")
+    assert npm_mod.read_package_identity(corrupt) is None
+
+
+def test_registry_has_version_true(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(npm_mod.urllib.request, "urlopen", _fake_urlopen(200))
+    assert npm_mod.registry_has_version("@s/p", "1.2.3") is True
+
+
+def test_registry_has_version_gives_up_on_404(monkeypatch: pytest.MonkeyPatch):
+    """A version that never lands must be reported as absent rather than retried forever."""
+    monkeypatch.setattr(npm_mod, "REGISTRY_CHECK_BACKOFF_SECONDS", 0)
+    monkeypatch.setattr(npm_mod.urllib.request, "urlopen", _fake_urlopen(404))
+    assert npm_mod.registry_has_version("@s/p", "1.2.3") is False
+
+
+def _fake_urlopen(status: int):
+    """Build a urlopen stand-in returning `status`, raising HTTPError for error codes."""
+
+    class _Response:
+        def __init__(self) -> None:
+            self.status = status
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> bool:
+            return False
+
+    def _urlopen(request, timeout=None):  # noqa: ARG001
+        if status >= 400:
+            raise npm_mod.urllib.error.HTTPError(request.full_url, status, "err", {}, None)
+        return _Response()
+
+    return _urlopen

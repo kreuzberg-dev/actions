@@ -4,6 +4,20 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.119] - 2026-08-06
+
+### Fixed
+
+- **`publish-npm` no longer reports a failed publish as a success.** `ALREADY_PUBLISHED_PATTERN`
+  matched a bare `already exists`, which also matches Sigstore/Rekor's `entry already exists` and
+  other unrelated errors; the skip branch then discarded npm's output, so the real failure left no
+  trace. `@xberg-io/html-to-markdown` 3.10.5 and 3.10.6 were both logged as "Package already
+  published, skipping" while the registry stayed on 3.10.4 — every platform sub-package advanced
+  and the umbrella package did not. The pattern is now limited to npm's version-conflict wording,
+  the npm output is always printed on the skip path, and both publish modes confirm the version is
+  retrievable from `registry.npmjs.org` before reporting success.
+  (`publish-npm/scripts/publish.py`)
+
 ## [1.8.118] - 2026-08-05
 
 ### Fixed
