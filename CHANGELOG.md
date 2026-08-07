@@ -4,6 +4,17 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.124] - 2026-08-07
+
+### Fixed
+
+- **`fetch-test-documents` works on Windows runners.** The action invoked its scripts via
+  `${{ github.action_path }}` inlined into a bash `run:` body; on Windows that expands to
+  `D:\a\_actions\...`, whose `\a` and `\_` bash reads as escape sequences, collapsing the path and
+  failing with exit 127. It now passes `$GITHUB_ACTION_PATH` through the environment and converts it
+  (and `runner.temp`, which has the same problem) with `cygpath` where available.
+  (`fetch-test-documents/`)
+
 ## [1.8.123] - 2026-08-07
 
 ### Added

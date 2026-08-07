@@ -11,7 +11,7 @@ source "${script_dir}/lib.sh"
 
 sha="$1"
 bucket="$2"
-cache_dir="$3"
+cache_dir="$(to_posix_path "$3")"
 
 objects_dir="${cache_dir}/objects"
 mkdir -p "$objects_dir"

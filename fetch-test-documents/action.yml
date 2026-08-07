@@ -60,7 +60,14 @@ runs:
       env:
         TEST_DOCUMENTS_PATH: ${{ inputs.path }}
         INCLUDE_PATTERNS: ${{ inputs.include }}
-      run: ${{ github.action_path }}/scripts/compute-cache-key.sh "${TEST_DOCUMENTS_PATH}/corpus.lock.json"
+      # ~keep $GITHUB_ACTION_PATH via env, never ${{ github.action_path }} inlined into the script
+      # body: on Windows that expands to `D:\a\_actions\...`, whose `\a` and `\_` bash reads as
+      # escapes, collapsing the path to `D:a_actions...` and failing with exit 127.
+      run: |
+        set -euo pipefail
+        action_path="$GITHUB_ACTION_PATH"
+        if command -v cygpath >/dev/null 2>&1; then action_path="$(cygpath -u "$action_path")"; fi
+        "${action_path}/scripts/compute-cache-key.sh" "${TEST_DOCUMENTS_PATH}/corpus.lock.json"
 
     - name: Restore object cache
       id: restore-cache
@@ -79,4 +86,8 @@ runs:
         BUCKET: ${{ inputs.bucket }}
         CONCURRENCY: ${{ inputs.concurrency }}
         CACHE_DIR: ${{ runner.temp }}/fetch-test-documents
-      run: ${{ github.action_path }}/scripts/fetch.sh "${TEST_DOCUMENTS_PATH}/corpus.lock.json" "${TEST_DOCUMENTS_PATH}"
+      run: |
+        set -euo pipefail
+        action_path="$GITHUB_ACTION_PATH"
+        if command -v cygpath >/dev/null 2>&1; then action_path="$(cygpath -u "$action_path")"; fi
+        "${action_path}/scripts/fetch.sh" "${TEST_DOCUMENTS_PATH}/corpus.lock.json" "${TEST_DOCUMENTS_PATH}"

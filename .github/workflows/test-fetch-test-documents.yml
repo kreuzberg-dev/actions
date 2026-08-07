@@ -35,6 +35,58 @@ jobs:
             exit 1
           }
 
+  # ~keep Windows and macOS are here for path handling, not coverage breadth, so the include is two
+  # files rather than a directory. GitHub hands composite actions native paths on Windows
+  # (`D:\a\_actions\...`, `D:\a\_temp`), which bash mangles into nonsense unless converted; that bug
+  # shipped once and only xberg's runners caught it, because this workflow was ubuntu-only.
+  cross-platform-path-handling:
+    name: Path handling on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout test_documents
+        uses: actions/checkout@v7
+        with:
+          repository: xberg-io/test_documents
+          path: test_documents
+          lfs: false
+
+      - name: Fetch two small objects
+        id: fetch
+        uses: ./fetch-test-documents
+        with:
+          path: test_documents
+          include: |
+            images/test.heic
+            images/alpha.heif
+          concurrency: "2"
+
+      - name: Assert both files hold real bytes at their manifest checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rel in images/test.heic images/alpha.heif; do
+            file="test_documents/${rel}"
+            [ -f "$file" ] || { echo "::error::not materialised: ${rel}"; exit 1; }
+            expected=$(jq -r --arg p "$rel" '.objects[$p].sha256' test_documents/corpus.lock.json)
+            if command -v sha256sum >/dev/null 2>&1; then
+              actual=$(sha256sum "$file" | cut -d' ' -f1)
+            else
+              actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
+            fi
+            [ "$actual" = "$expected" ] || { echo "::error::${rel}: expected ${expected}, got ${actual}"; exit 1; }
+            echo "ok ${rel} ${actual}"
+          done
+          [ "${{ steps.fetch.outputs.objects-fetched }}" = "2" ] || {
+            echo "::error::expected 2 objects fetched, got ${{ steps.fetch.outputs.objects-fetched }}"
+            exit 1
+          }
+
   # ~keep Exercises the real public bucket with no credentials configured, which is the property
   # that matters: fork PRs get no OIDC token, so any regression that reintroduces an auth
   # requirement must fail here rather than only for outside contributors.

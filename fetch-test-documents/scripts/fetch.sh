@@ -17,7 +17,7 @@ target_path="$2"
 
 bucket="${BUCKET:?BUCKET is required}"
 concurrency="${CONCURRENCY:-8}"
-cache_dir="${CACHE_DIR:?CACHE_DIR is required}"
+cache_dir="$(to_posix_path "${CACHE_DIR:?CACHE_DIR is required}")"
 
 if ! [[ "$concurrency" =~ ^[0-9]+$ ]] || [[ "$concurrency" -lt 1 ]]; then
 	echo "::error::concurrency must be a positive integer, got '${concurrency}'" >&2
