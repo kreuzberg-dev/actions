@@ -56,6 +56,11 @@ jobs:
           path: test_documents
           lfs: false
 
+      # ~keep cache: false is required for the objects-fetched assertion below to mean anything. The
+      # cache key is derived from the manifest and the include patterns, so a push to main and the
+      # tags it moves produce concurrent runs sharing one key: whichever lands first populates the
+      # cache and the rest legitimately download 0 objects. Disabling the cache here makes the
+      # download path — the thing this job exists to exercise on Windows and macOS — always run.
       - name: Fetch two small objects
         id: fetch
         uses: ./fetch-test-documents
@@ -65,6 +70,7 @@ jobs:
             images/test.heic
             images/alpha.heif
           concurrency: "2"
+          cache: "false"
 
       - name: Assert both files hold real bytes at their manifest checksum
         shell: bash
