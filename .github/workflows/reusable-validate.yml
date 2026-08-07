@@ -154,10 +154,16 @@ jobs:
         if: ${{ inputs.setup-python }}
         uses: astral-sh/setup-uv@v9.0.0
 
-      - name: Sync Python deps (best-effort)
+      # ~keep --no-install-workspace skips building/installing the workspace's own
+      # package(s) (e.g. a maturin-backed extension), which pyrefly never needs — it
+      # type-checks source against the checked-in `.pyi` stub, not an installed wheel.
+      # Building the extension for real pulls in the crate's full native dependency
+      # graph (e.g. libheif-sys), which this job has no system libs for and which
+      # previously turned a should-be-cheap dep sync into a multi-minute failure that
+      # `continue-on-error` silently swallowed.
+      - name: Sync Python deps
         if: ${{ inputs.setup-python }}
-        continue-on-error: true
-        run: uv sync || echo "uv sync skipped — non-fatal for poly lint"
+        run: uv sync --no-install-workspace
 
       # ~keep pyrefly resolves imports against the interpreter it is handed, which is the
       # runner's system Python unless the synced venv is put on PATH — so every third-party
@@ -241,12 +247,15 @@ jobs:
       # ~keep poly delegates Elixir formatting to `mix format`, which reads the project's
       # `.formatter.exs` — and `import_deps: [:rustler]` there needs the deps on disk. Without
       # this, `mix format` errors, poly logs a warning and treats the file as unchanged, and
-      # Elixir drift passes CI unnoticed. Best-effort for the same reason `uv sync` is.
-      - name: Resolve Elixir deps (best-effort)
+      # Elixir drift passes CI unnoticed. `setup-elixir` already installs hex/rebar, so
+      # `mix deps.get` fetching ordinary Hex packages (jason, rustler, rustler_precompiled,
+      # credo, ex_doc) has no known failure mode here — a failure is a real problem
+      # (registry outage, a broken dep constraint) that should fail the job, not hide behind
+      # a swallowed exit code the way it did before.
+      - name: Resolve Elixir deps
         if: ${{ inputs.setup-elixir }}
-        continue-on-error: true
         working-directory: ${{ inputs.elixir-working-directory }}
-        run: mix deps.get || echo "mix deps.get skipped — non-fatal for poly"
+        run: mix deps.get
 
       # ~keep poly delegates C, C++, and C# formatting to clang-format, so its version decides
       # whether `poly fmt --check` passes. Without this the job silently used the runner image's
