@@ -1,0 +1,82 @@
+name: Fetch Test Documents
+description: >-
+  Materialise binary fixtures from the public xberg-test-documents GCS bucket into a checked-out
+  test_documents submodule, replacing git lfs pull. Selects a subset via include glob patterns
+  matched against corpus.lock.json, dedupes by sha256, downloads in parallel, and verifies every
+  object's checksum. Needs no credentials — the bucket is served publicly and anonymously.
+inputs:
+  path:
+    description: Directory where the test_documents submodule is checked out.
+    required: false
+    default: test_documents
+  include:
+    description: >-
+      Newline-separated glob patterns matched against manifest paths (e.g. "pdf/**"). Defaults to
+      "**", which fetches every object in the manifest.
+    required: false
+    default: "**"
+  bucket:
+    description: >-
+      GCS bucket name serving objects at https://storage.googleapis.com/<bucket>/objects/<sha256>.
+    required: false
+    default: xberg-test-documents
+  cache:
+    description: >-
+      Whether to cache downloaded objects via actions/cache, keyed by the manifest content and the
+      normalised include patterns.
+    required: false
+    default: "true"
+  concurrency:
+    description: Number of objects to download in parallel.
+    required: false
+    default: "8"
+outputs:
+  cache-hit:
+    description: Whether the object cache was restored on an exact key match.
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+  objects-fetched:
+    description: Number of unique objects downloaded from the bucket this run (0 on a full cache hit).
+    value: ${{ steps.fetch.outputs.objects-fetched }}
+  bytes-fetched:
+    description: Total bytes downloaded from the bucket this run.
+    value: ${{ steps.fetch.outputs.bytes-fetched }}
+runs:
+  using: composite
+  steps:
+    - name: Validate manifest exists
+      shell: bash
+      env:
+        TEST_DOCUMENTS_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        if [[ ! -f "${TEST_DOCUMENTS_PATH}/corpus.lock.json" ]]; then
+          echo "::error::${TEST_DOCUMENTS_PATH}/corpus.lock.json not found. Is the test_documents submodule checked out (actions/checkout with 'submodules: true' or a dedicated checkout step)?"
+          exit 1
+        fi
+
+    - name: Compute cache key
+      id: cache-key
+      shell: bash
+      env:
+        TEST_DOCUMENTS_PATH: ${{ inputs.path }}
+        INCLUDE_PATTERNS: ${{ inputs.include }}
+      run: ${{ github.action_path }}/scripts/compute-cache-key.sh "${TEST_DOCUMENTS_PATH}/corpus.lock.json"
+
+    - name: Restore object cache
+      id: restore-cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/fetch-test-documents/objects
+        key: ${{ steps.cache-key.outputs.key }}
+
+    - name: Fetch and materialise objects
+      id: fetch
+      shell: bash
+      env:
+        TEST_DOCUMENTS_PATH: ${{ inputs.path }}
+        INCLUDE_PATTERNS: ${{ inputs.include }}
+        BUCKET: ${{ inputs.bucket }}
+        CONCURRENCY: ${{ inputs.concurrency }}
+        CACHE_DIR: ${{ runner.temp }}/fetch-test-documents
+      run: ${{ github.action_path }}/scripts/fetch.sh "${TEST_DOCUMENTS_PATH}/corpus.lock.json" "${TEST_DOCUMENTS_PATH}"

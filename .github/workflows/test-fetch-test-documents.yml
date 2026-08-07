@@ -1,0 +1,115 @@
+name: Test fetch-test-documents
+on:
+  push:
+    paths:
+      - "fetch-test-documents/**"
+      - ".github/workflows/test-fetch-test-documents.yml"
+  pull_request:
+    paths:
+      - "fetch-test-documents/**"
+      - ".github/workflows/test-fetch-test-documents.yml"
+
+jobs:
+  missing-manifest-fails-clearly:
+    name: Missing manifest fails clearly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Stage a submodule directory with no corpus.lock.json
+        shell: bash
+        run: mkdir -p "${{ runner.temp }}/no-manifest/test_documents"
+
+      - name: Action fails before touching the network
+        id: fetch
+        continue-on-error: true
+        uses: ./fetch-test-documents
+        with:
+          path: ${{ runner.temp }}/no-manifest/test_documents
+
+      - name: Confirm the failure
+        shell: bash
+        run: |
+          [ "${{ steps.fetch.outcome }}" = "failure" ] || {
+            echo "expected failure, got ${{ steps.fetch.outcome }}"
+            exit 1
+          }
+
+  # ~keep Exercises the real public bucket with no credentials configured, which is the property
+  # that matters: fork PRs get no OIDC token, so any regression that reintroduces an auth
+  # requirement must fail here rather than only for outside contributors.
+  subset-fetch-from-live-bucket:
+    name: Subset fetch against the live bucket
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout test_documents
+        uses: actions/checkout@v7
+        with:
+          repository: xberg-io/test_documents
+          path: test_documents
+
+      # ~keep The repo keeps ~2000 tracked text files after the binaries move to the bucket, so
+      # "nothing outside pdf/ exists" is not a valid assertion. Snapshot what checkout produced and
+      # assert only on what the action itself added.
+      - name: Snapshot the tree before fetching
+        shell: bash
+        run: find test_documents -type f ! -path 'test_documents/.git/*' | sort > "${{ runner.temp }}/before.txt"
+
+      - name: Fetch a pdf-only subset
+        id: fetch
+        uses: ./fetch-test-documents
+        with:
+          path: test_documents
+          include: |
+            pdf/**
+          concurrency: "4"
+
+      - name: Assert the action materialised pdf/ files and nothing else
+        shell: bash
+        run: |
+          set -euo pipefail
+          find test_documents -type f ! -path 'test_documents/.git/*' | sort > "${{ runner.temp }}/after.txt"
+          added=$(comm -13 "${{ runner.temp }}/before.txt" "${{ runner.temp }}/after.txt")
+          if [ -z "$added" ]; then
+            echo "::error::the action materialised no files at all"
+            exit 1
+          fi
+          unexpected=$(printf '%s\n' "$added" | grep -v '^test_documents/pdf/' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::files appeared outside the pdf/ include pattern:"
+            echo "$unexpected"
+            exit 1
+          fi
+          echo "materialised $(printf '%s\n' "$added" | wc -l) file(s), all under pdf/"
+
+      - name: Assert outputs are populated
+        shell: bash
+        env:
+          OBJECTS_FETCHED: ${{ steps.fetch.outputs.objects-fetched }}
+          BYTES_FETCHED: ${{ steps.fetch.outputs.bytes-fetched }}
+        run: |
+          set -euo pipefail
+          [ -n "$OBJECTS_FETCHED" ]
+          [ -n "$BYTES_FETCHED" ]
+          [ "$BYTES_FETCHED" -ge 0 ]
+
+      - name: Re-run in the same job is idempotent and downloads nothing new
+        id: refetch
+        uses: ./fetch-test-documents
+        with:
+          path: test_documents
+          include: |
+            pdf/**
+          concurrency: "4"
+
+      - name: Confirm the second run fetched zero objects
+        shell: bash
+        env:
+          OBJECTS_FETCHED: ${{ steps.refetch.outputs.objects-fetched }}
+        run: |
+          [ "$OBJECTS_FETCHED" = "0" ] || {
+            echo "::error::expected 0 objects on the second run, got ${OBJECTS_FETCHED}"
+            exit 1
+          }

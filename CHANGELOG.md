@@ -4,6 +4,22 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.8.123] - 2026-08-07
+
+### Added
+
+- **`fetch-test-documents` action.** Materialises binary fixtures from the public
+  `xberg-test-documents` GCS bucket into a checked-out `test_documents` submodule, replacing
+  `git lfs pull` as the corpus moves to content-addressed storage. Selects a subset via `include`
+  glob patterns matched against `corpus.lock.json`, dedupes matched entries by sha256, downloads
+  each unique object in parallel (`concurrency`, default 8), verifies every download's checksum,
+  and writes it to every path that references it — needing no credentials since the bucket is
+  public. Caches the object store via `actions/cache` keyed on the manifest content and normalised
+  include patterns, and is safe to run twice in the same job. Adds `test-fetch-test-documents.yml`,
+  which exercises the live bucket with no credentials configured so a reintroduced auth requirement
+  fails in CI rather than only on fork PRs. (`fetch-test-documents/`,
+  `.github/workflows/test-fetch-test-documents.yml`)
+
 ## [1.8.122] - 2026-08-06
 
 ### Fixed
