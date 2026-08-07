@@ -44,18 +44,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ~keep lfs: false is the whole point — the action must supply the bytes, so leaving LFS
+      # unfetched is what makes the assertions below meaningful rather than accidentally satisfied.
       - name: Checkout test_documents
         uses: actions/checkout@v7
         with:
           repository: xberg-io/test_documents
           path: test_documents
-
-      # ~keep The repo keeps ~2000 tracked text files after the binaries move to the bucket, so
-      # "nothing outside pdf/ exists" is not a valid assertion. Snapshot what checkout produced and
-      # assert only on what the action itself added.
-      - name: Snapshot the tree before fetching
-        shell: bash
-        run: find test_documents -type f ! -path 'test_documents/.git/*' | sort > "${{ runner.temp }}/before.txt"
+          lfs: false
 
       - name: Fetch a pdf-only subset
         id: fetch
@@ -66,23 +62,43 @@ jobs:
             pdf/**
           concurrency: "4"
 
-      - name: Assert the action materialised pdf/ files and nothing else
+      # ~keep Asserts on CONTENT, not on which paths exist. Checkout without `lfs: true` already
+      # leaves an LFS pointer file at every corpus path, so the action overwrites in place and adds
+      # no new paths — "did a file appear" cannot detect materialisation. A path outside the include
+      # set is allowed to be absent (post-LFS) or still a pointer (pre-LFS), but never real content.
+      - name: Assert pdf/ holds real bytes and the include scope was honoured
         shell: bash
         run: |
           set -euo pipefail
-          find test_documents -type f ! -path 'test_documents/.git/*' | sort > "${{ runner.temp }}/after.txt"
-          added=$(comm -13 "${{ runner.temp }}/before.txt" "${{ runner.temp }}/after.txt")
-          if [ -z "$added" ]; then
-            echo "::error::the action materialised no files at all"
-            exit 1
-          fi
-          unexpected=$(printf '%s\n' "$added" | grep -v '^test_documents/pdf/' || true)
-          if [ -n "$unexpected" ]; then
-            echo "::error::files appeared outside the pdf/ include pattern:"
-            echo "$unexpected"
-            exit 1
-          fi
-          echo "materialised $(printf '%s\n' "$added" | wc -l) file(s), all under pdf/"
+          pointer='version https://git-lfs.github.com'
+          jq -r '.objects | keys[]' test_documents/corpus.lock.json | sort > "${{ runner.temp }}/paths.txt"
+          grep '^pdf/'    "${{ runner.temp }}/paths.txt" > "${{ runner.temp }}/included.txt"
+          grep -v '^pdf/' "${{ runner.temp }}/paths.txt" > "${{ runner.temp }}/excluded.txt"
+
+          [ -s "${{ runner.temp }}/included.txt" ] || { echo "::error::manifest has no pdf/ entries"; exit 1; }
+
+          failures=0
+          while IFS= read -r rel; do
+            file="test_documents/${rel}"
+            if [ ! -f "$file" ]; then
+              echo "::error::included path was not materialised: ${rel}"
+              failures=$((failures + 1))
+            elif head -c 64 "$file" | grep -qF "$pointer"; then
+              echo "::error::included path is still an LFS pointer: ${rel}"
+              failures=$((failures + 1))
+            fi
+          done < "${{ runner.temp }}/included.txt"
+
+          while IFS= read -r rel; do
+            file="test_documents/${rel}"
+            if [ -f "$file" ] && ! head -c 64 "$file" | grep -qF "$pointer"; then
+              echo "::error::excluded path holds real content, so the include scope leaked: ${rel}"
+              failures=$((failures + 1))
+            fi
+          done < "${{ runner.temp }}/excluded.txt"
+
+          [ "$failures" -eq 0 ] || { echo "::error::${failures} assertion failure(s)"; exit 1; }
+          echo "materialised $(wc -l < "${{ runner.temp }}/included.txt") pdf/ path(s); $(wc -l < "${{ runner.temp }}/excluded.txt") excluded path(s) untouched"
 
       - name: Assert outputs are populated
         shell: bash
