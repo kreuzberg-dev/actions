@@ -126,6 +126,16 @@ on:
         required: false
         type: string
         default: ""
+      install-system-deps:
+        description: >-
+          Run xberg-io/xberg's install-system-deps composite action before linting (Linux only, requires
+          setup-rust). Builds libheif from source (Ubuntu's package is too old for libheif-sys) plus
+          Tesseract and other native deps, so poly's cargo-clippy hook can compile Rust crates with
+          native FFI dependencies. Opt-in because the build is expensive even when cached; only enable it
+          if the workspace's clippy build actually needs these system libraries.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -143,6 +153,17 @@ jobs:
         with:
           components: ${{ inputs.rust-components }}
           install-llvm-cov: "false"
+
+      # ~keep opt-in: xberg's tools/benchmark-harness pulls in libheif-sys via the
+      # `full` feature, and Ubuntu Noble only ships libheif 1.17.6 (libheif-sys needs
+      # >= 1.21), which makes the cargo-clippy hook fail with a pkg-config error. This
+      # composite action builds/caches libheif 1.23.0 from source. It is gated behind
+      # its own input rather than folded into setup-rust because it also installs
+      # Tesseract and other unrelated native deps, and even the cached path is not free
+      # — most Rust-enabled callers of this reusable workflow don't need any of it.
+      - name: Install system dependencies (libheif for cargo-clippy)
+        if: ${{ inputs.setup-rust && inputs.install-system-deps && runner.os == 'Linux' }}
+        uses: xberg-io/xberg/.github/actions/install-system-deps@8edb54802b5fe0fb0f38d40e00558b75fd413310
 
       - name: Set up Python
         if: ${{ inputs.setup-python }}
