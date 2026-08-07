@@ -52,6 +52,9 @@ Fetch everything (default):
 
 ## Notes
 
+- Patterns are bash `[[ path == pattern ]]` matches, not gitignore-style globs, so `*` crosses `/`:
+  `pdf/*` and `pdf/**` both select everything under `pdf/`, at any depth. There is no way to match a
+  single path segment.
 - Fails early with a clear error if `<path>/corpus.lock.json` is missing — check out the
   `test_documents` submodule first (`actions/checkout` with `submodules: true`, or a dedicated
   checkout step).
