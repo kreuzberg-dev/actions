@@ -182,8 +182,13 @@ jobs:
       # graph (e.g. libheif-sys), which this job has no system libs for and which
       # previously turned a should-be-cheap dep sync into a multi-minute failure that
       # `continue-on-error` silently swallowed.
+      # ~keep Guarded on the manifest existing, not just on `setup-python`: `uv sync`
+      # exits 2 with "No `pyproject.toml` found" in a repo that has loose `.py` files
+      # worth linting but no uv project (alef). Those callers still want the
+      # interpreter set up for pyrefly, so gate the sync rather than the whole block —
+      # the "Activate the synced venv" step below already tolerates a missing `.venv`.
       - name: Sync Python deps
-        if: ${{ inputs.setup-python }}
+        if: ${{ inputs.setup-python && hashFiles('pyproject.toml') != '' }}
         run: uv sync --no-install-workspace
 
       # ~keep pyrefly resolves imports against the interpreter it is handed, which is the
