@@ -37,6 +37,17 @@ inputs:
 runs:
   using: composite
   steps:
+    # ~keep uv is installed here rather than assumed from the caller because clang-format
+    # ships as a PyPI wheel and needs a venv to land in. `python3 -m venv` requires
+    # ensurepip, which some runner images' system python lacks ("you need to install the
+    # python3-venv package"), so this action used to fail for any caller that had not
+    # separately run setup-python — an undeclared dependency that took xberg-enterprise's
+    # Validate down at "Set up clang-format". uv builds the venv itself and fetches its own
+    # interpreter when none is suitable, so the install no longer depends on the caller.
+    - name: Set up uv
+      if: ${{ inputs.install-clang-format == 'true' }}
+      uses: astral-sh/setup-uv@v9.0.0
+
     - name: Install C/C++ tools (Linux)
       if: runner.os == 'Linux'
       shell: bash
