@@ -163,7 +163,7 @@ jobs:
       # — most Rust-enabled callers of this reusable workflow don't need any of it.
       - name: Install system dependencies (libheif for cargo-clippy)
         if: ${{ inputs.setup-rust && inputs.install-system-deps && runner.os == 'Linux' }}
-        uses: xberg-io/xberg/.github/actions/install-system-deps@8edb54802b5fe0fb0f38d40e00558b75fd413310
+        uses: xberg-io/actions/install-system-deps@v1
 
       - name: Set up Python
         if: ${{ inputs.setup-python }}

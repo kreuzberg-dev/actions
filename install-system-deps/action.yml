@@ -1,0 +1,155 @@
+name: Install System Dependencies
+description: |
+  Install and cache platform-specific dependencies required for document conversion.
+  Includes: Tesseract OCR, fonts, and build tools.
+  Features robust caching with architecture/version awareness, timeout handling, and retry logic.
+
+inputs:
+  enable-retry:
+    description: Enable retry logic with exponential backoff
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Detect Tesseract version (macOS)
+      if: runner.os == 'macOS'
+      id: detect-tesseract-macos
+      shell: bash
+      run: "${{ github.action_path }}/scripts/detect-tesseract-macos.sh"
+
+    - name: Cache Tesseract & tessdata (macOS)
+      if: runner.os == 'macOS'
+      id: cache-tesseract-macos
+      uses: actions/cache@v5
+      with:
+        path: |
+          /usr/local/opt/tesseract/
+          /usr/local/Cellar/tesseract/
+          /opt/homebrew/opt/tesseract/
+          /opt/homebrew/Cellar/tesseract/
+        key: tesseract-macos-${{ runner.arch }}-v5-${{ steps.detect-tesseract-macos.outputs.version }}
+        restore-keys: |
+          tesseract-macos-${{ runner.arch }}-v5-
+          tesseract-macos-${{ runner.arch }}-
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: "${{ github.action_path }}/scripts/install-macos.sh"
+
+    - name: Detect Tesseract version (Linux)
+      if: runner.os == 'Linux'
+      id: detect-tesseract-linux
+      shell: bash
+      run: "${{ github.action_path }}/scripts/detect-tesseract-linux.sh"
+
+    - name: Cache Tesseract data (Linux)
+      if: runner.os == 'Linux'
+      id: cache-tesseract-linux
+      uses: actions/cache@v5
+      with:
+        path: |
+          /usr/share/tesseract-ocr/5/tessdata/
+          /usr/share/tesseract-ocr/tessdata/
+        key: tesseract-linux-${{ runner.arch }}-v5-${{ steps.detect-tesseract-linux.outputs.version }}
+        restore-keys: |
+          tesseract-linux-${{ runner.arch }}-v5-
+          tesseract-linux-${{ runner.arch }}-
+
+    - name: Restore libheif cache (Linux)
+      if: runner.os == 'Linux'
+      id: cache-libheif-linux
+      uses: actions/cache@v5
+      with:
+        path: |
+          /tmp/libheif-cache/usr/local/lib/libheif*
+          /tmp/libheif-cache/usr/local/lib/pkgconfig/libheif.pc
+          /tmp/libheif-cache/usr/local/include/libheif/
+          /tmp/libheif-cache/usr/local/share/libheif/
+        key: libheif-linux-${{ runner.arch }}-v1.23.0-cache-v3
+        restore-keys: |
+          libheif-linux-${{ runner.arch }}-v1.23.0-cache-v3
+
+    - name: Restore cached libheif to /usr/local (Linux)
+      if: runner.os == 'Linux' && steps.cache-libheif-linux.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "Restoring cached libheif from /tmp/libheif-cache to /usr/local..."
+        if [ -d /tmp/libheif-cache/usr/local/lib ]; then
+          sudo cp -a /tmp/libheif-cache/usr/local/lib/libheif* /usr/local/lib/ 2>/dev/null || true
+          sudo cp -a /tmp/libheif-cache/usr/local/lib/pkgconfig/libheif.pc /usr/local/lib/pkgconfig/ 2>/dev/null || true
+        fi
+        if [ -d /tmp/libheif-cache/usr/local/include/libheif ]; then
+          sudo cp -a /tmp/libheif-cache/usr/local/include/libheif /usr/local/include/
+        fi
+        if [ -d /tmp/libheif-cache/usr/local/share/libheif ]; then
+          sudo cp -a /tmp/libheif-cache/usr/local/share/libheif /usr/local/share/
+        fi
+        sudo ldconfig
+        echo "✓ Restored cached libheif"
+
+    - name: Install dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: "${{ github.action_path }}/scripts/install-linux.sh"
+
+    - name: Cache Tesseract (Windows)
+      if: runner.os == 'Windows'
+      id: cache-tesseract-windows
+      uses: actions/cache@v5
+      with:
+        path: |
+          C:\Program Files\Tesseract-OCR
+          C:\ProgramData\chocolatey\lib\tesseract
+        key: tesseract-windows-${{ runner.arch }}-v5-data
+        restore-keys: |
+          tesseract-windows-${{ runner.arch }}-
+
+    - name: Cache LLVM (Windows)
+      if: runner.os == 'Windows'
+      id: cache-llvm-windows
+      uses: actions/cache@v5
+      with:
+        path: |
+          C:\Program Files\LLVM
+          C:\ProgramData\chocolatey\lib\llvm
+        key: llvm-windows-${{ runner.arch }}-v1
+
+    - name: Cache CMake (Windows)
+      if: runner.os == 'Windows'
+      id: cache-cmake-windows
+      uses: actions/cache@v5
+      with:
+        path: |
+          C:\Program Files\CMake
+          C:\ProgramData\chocolatey\lib\cmake
+        key: cmake-windows-${{ runner.arch }}-v1
+
+    - name: Cache libheif + boost + zlib vcpkg (Windows)
+      if: runner.os == 'Windows'
+      id: cache-libheif-windows
+      uses: actions/cache@v5
+      with:
+        path: |
+          C:\vcpkg\installed
+          C:\vcpkg\buildtrees\libheif
+          C:\vcpkg\buildtrees\libde265
+          C:\vcpkg\buildtrees\libaom
+          C:\vcpkg\buildtrees\boost-spirit
+          C:\vcpkg\buildtrees\boost-serialization
+          C:\vcpkg\buildtrees\zlib
+        key: libheif-windows-${{ runner.arch }}-vcpkg-v4
+        restore-keys: |
+          libheif-windows-${{ runner.arch }}-vcpkg-v4-
+
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        TESSERACT_CACHE_HIT: ${{ steps.cache-tesseract-windows.outputs.cache-hit }}
+        LLVM_CACHE_HIT: ${{ steps.cache-llvm-windows.outputs.cache-hit }}
+        CMAKE_CACHE_HIT: ${{ steps.cache-cmake-windows.outputs.cache-hit }}
+        LIBHEIF_CACHE_HIT: ${{ steps.cache-libheif-windows.outputs.cache-hit }}
+      run: pwsh -File "${{ github.action_path }}/scripts/install-windows.ps1"
