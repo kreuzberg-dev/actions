@@ -128,7 +128,7 @@ on:
         default: ""
       install-system-deps:
         description: >-
-          Run xberg-io/xberg's install-system-deps composite action before linting (Linux only, requires
+          Run this repo's install-system-deps composite action before linting (Linux only, requires
           setup-rust). Builds libheif from source (Ubuntu's package is too old for libheif-sys) plus
           Tesseract and other native deps, so poly's cargo-clippy hook can compile Rust crates with
           native FFI dependencies. Opt-in because the build is expensive even when cached; only enable it
