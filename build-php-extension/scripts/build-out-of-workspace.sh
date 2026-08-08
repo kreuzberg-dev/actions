@@ -78,15 +78,26 @@ fi
 
 strip_internal_paths Cargo.toml
 
+# ~keep The workspace lock is a seed, not a formality: it is what keeps this build on
+# the same dependency versions as every other job. `cargo generate-lockfile` used to run
+# here and threw those pins away, re-resolving everything to latest — which is how a
+# broken `zune-core` release reached the PHP job alone while every `--locked` job stayed
+# green. Letting cargo update the lock *minimally* instead preserves every pin the
+# manifest rewrite did not invalidate.
+#
+# `--locked` cannot be used with that seed: `strip_internal_paths` above rewrites sibling
+# path dependencies into registry ones, so the copied lock legitimately no longer matches
+# this manifest and `--locked` would hard-fail. (It was vacuous before anyway, sitting
+# directly after a `generate-lockfile` that had just made the lock match by construction.)
 if [ -f "$WORKSPACE_ROOT/Cargo.lock" ]; then
 	cp "$WORKSPACE_ROOT/Cargo.lock" Cargo.lock
+else
+	cargo generate-lockfile
 fi
-
-cargo generate-lockfile
 
 cargo update -p time --precise 0.3.47 || true
 
-cargo build --locked --release ${CARGO_FEATURES:+--features "$CARGO_FEATURES"}
+cargo build --release ${CARGO_FEATURES:+--features "$CARGO_FEATURES"}
 
 mkdir -p "$WORKSPACE_ROOT/target/release"
 

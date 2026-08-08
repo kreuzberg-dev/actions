@@ -127,14 +127,26 @@ runs:
           }
         }
 
-        cargo generate-lockfile
+        # ~keep Seed from the workspace lock so this build tracks the same dependency
+        # versions as every other job. This branch previously ran a bare
+        # `cargo generate-lockfile` and never copied the workspace lock at all, so it
+        # re-resolved to latest on every run — the same defect that let a broken
+        # `zune-core` release into the PHP job while `--locked` jobs stayed green.
+        # `--locked` is not usable here: stripping `workspace = true` above changes the
+        # manifest, so the seeded lock legitimately needs a minimal update.
+        $workspaceLock = Join-Path $workspaceRoot "Cargo.lock"
+        if (Test-Path $workspaceLock) {
+          Copy-Item -Path $workspaceLock -Destination (Join-Path (Get-Location) "Cargo.lock")
+        } else {
+          cargo generate-lockfile
+        }
         # Pin `time` to 0.3.47 to avoid the trait-impl conflict between `time` 0.3.48
         # and `cookie` 0.18.1 (E0119 in cookie 0.18.1). Tolerate absence in the graph.
         try { cargo update -p time --precise 0.3.47 } catch { Write-Host "time crate not in dep graph; skipping pin" }
         if ($env:CARGO_FEATURES) {
-          cargo build --locked --release --features $env:CARGO_FEATURES
+          cargo build --release --features $env:CARGO_FEATURES
         } else {
-          cargo build --locked --release
+          cargo build --release
         }
 
         $dllPath = Join-Path $workspaceRoot "target\release\$($env:LIB_NAME).dll"
