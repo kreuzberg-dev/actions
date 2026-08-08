@@ -22,7 +22,7 @@ runs:
     - name: Cache Tesseract & tessdata (macOS)
       if: runner.os == 'macOS'
       id: cache-tesseract-macos
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           /usr/local/opt/tesseract/
@@ -48,7 +48,7 @@ runs:
     - name: Cache Tesseract data (Linux)
       if: runner.os == 'Linux'
       id: cache-tesseract-linux
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           /usr/share/tesseract-ocr/5/tessdata/
@@ -61,7 +61,7 @@ runs:
     - name: Restore libheif cache (Linux)
       if: runner.os == 'Linux'
       id: cache-libheif-linux
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           /tmp/libheif-cache/usr/local/lib/libheif*
@@ -98,7 +98,7 @@ runs:
     - name: Cache Tesseract (Windows)
       if: runner.os == 'Windows'
       id: cache-tesseract-windows
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           C:\Program Files\Tesseract-OCR
@@ -110,7 +110,7 @@ runs:
     - name: Cache LLVM (Windows)
       if: runner.os == 'Windows'
       id: cache-llvm-windows
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           C:\Program Files\LLVM
@@ -120,7 +120,7 @@ runs:
     - name: Cache CMake (Windows)
       if: runner.os == 'Windows'
       id: cache-cmake-windows
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           C:\Program Files\CMake
@@ -130,7 +130,7 @@ runs:
     - name: Cache libheif + boost + zlib vcpkg (Windows)
       if: runner.os == 'Windows'
       id: cache-libheif-windows
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           C:\vcpkg\installed
