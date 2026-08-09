@@ -24,7 +24,7 @@ on:
         type: boolean
         default: true
       runner:
-        description: "Runner label(s) to run on. Defaults to GitHub-hosted; pass a self-hosted label to run on org runners."
+        description: "Runner label(s) to run on. Use a GitHub-hosted label such as ubuntu-latest or ubuntu-24.04-arm; the org self-hosted pools were retired."
         required: false
         type: string
         default: "ubuntu-latest"
