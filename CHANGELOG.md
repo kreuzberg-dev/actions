@@ -4,6 +4,14 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`reusable-validate` can enforce fixture-backed documentation snippets.** Callers can opt in with
+  `check-fixture-snippets: true`; the job installs `alef` through `install-alef@v1` (using the new
+  `alef-version` input, default `latest`), generates configured E2E fixture snippets, fails on tracked
+  drift, and runs `alef snippets check --strict --cache off`.
+  (`.github/workflows/reusable-validate.yml`)
+
 ## [1.8.124] - 2026-08-07
 
 ### Fixed

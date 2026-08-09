@@ -134,6 +134,7 @@ covers `pypi`, `npm`, `wasm`, `rubygems`, `hex`, `maven`, `nuget`, `cratesio`,
 
 | Workflow | Description |
 |----------|-------------|
+| `reusable-validate.yml` | Poly formatting/lint validation with optional fixture-backed Alef snippet generation, tracked-drift detection, and strict uncached snippet checks (`check-fixture-snippets: true`; `alef-version` defaults to `latest`) |
 | `reusable-validate-pr.yml` | PR title conventional commit validation |
 | `reusable-validate-issues.yml` | Issue title validation |
 | `reusable-check-registries.yml` | Matrix registry checks (replaces N separate check jobs) |

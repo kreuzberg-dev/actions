@@ -136,6 +136,19 @@ on:
         required: false
         type: boolean
         default: false
+      check-fixture-snippets:
+        description: >-
+          Generate fixture-backed documentation snippets, fail if tracked files drift, and run the
+          configured strict snippet checks. Requires [crates.e2e.snippets] and docs snippet configuration
+          in alef.toml.
+        required: false
+        type: boolean
+        default: false
+      alef-version:
+        description: "Alef version passed to install-alef@v1 for fixture snippet checks."
+        required: false
+        type: string
+        default: "latest"
 
 permissions:
   contents: read
@@ -294,6 +307,24 @@ jobs:
         with:
           install-cppcheck: "false"
           install-shellcheck: "false"
+
+      - name: Install alef CLI
+        if: ${{ inputs.check-fixture-snippets }}
+        uses: xberg-io/actions/install-alef@v1
+        with:
+          version: ${{ inputs.alef-version }}
+
+      - name: Generate fixture snippets
+        if: ${{ inputs.check-fixture-snippets }}
+        run: alef e2e generate
+
+      - name: Check fixture snippet drift
+        if: ${{ inputs.check-fixture-snippets }}
+        run: git diff --exit-code
+
+      - name: Validate fixture snippets
+        if: ${{ inputs.check-fixture-snippets }}
+        run: alef snippets check --strict --cache off
 
       - name: Resolve latest poly version
         id: poly-latest
