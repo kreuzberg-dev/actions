@@ -173,7 +173,7 @@ jobs:
 
       - name: Set up uv
         if: ${{ inputs.setup-python }}
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@v10.0.0
 
       # ~keep --no-install-workspace skips building/installing the workspace's own
       # package(s) (e.g. a maturin-backed extension), which pyrefly never needs — it

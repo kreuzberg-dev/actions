@@ -46,7 +46,7 @@ runs:
     # interpreter when none is suitable, so the install no longer depends on the caller.
     - name: Set up uv
       if: ${{ inputs.install-clang-format == 'true' }}
-      uses: astral-sh/setup-uv@v9.0.0
+      uses: astral-sh/setup-uv@v10.0.0
 
     - name: Install C/C++ tools (Linux)
       if: runner.os == 'Linux'
