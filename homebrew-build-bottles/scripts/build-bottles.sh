@@ -21,6 +21,25 @@ upload="${UPLOAD:-true}"
 # is unaffected, so we pin only the Linux leg. Override via LINUX_BREW_PIN if needed.
 linux_brew_pin="${LINUX_BREW_PIN:-6.0.12}"
 
+retry() {
+	local -r max_attempts=5
+	local attempt=1
+	local delay=5
+	local status=0
+	while true; do
+		"$@" && return 0
+		status=$?
+		if ((attempt >= max_attempts)); then
+			echo "ERROR: command failed after ${max_attempts} attempts (exit ${status}): $*" >&2
+			return "$status"
+		fi
+		echo "warning: attempt ${attempt}/${max_attempts} failed (exit ${status}); retrying in ${delay}s: $*" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		delay=$((delay * 2))
+	done
+}
+
 mkdir -p "$out_dir"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
@@ -66,7 +85,7 @@ else
 	brew update --quiet || true
 fi
 export HOMEBREW_NO_SANDBOX_LINUX=1
-brew tap "$tap"
+retry brew tap "$tap"
 brew trust "$tap" || echo "warning: brew trust unavailable; relying on env-var bypass"
 echo "::endgroup::"
 
@@ -94,25 +113,6 @@ if stripped != content:
     sys.stderr.write(f"normalize_tapped_formula: stripped stale bottle block(s) from {path}\n")
 PYEOF
 		return 0
-	done
-}
-
-retry() {
-	local -r max_attempts=5
-	local attempt=1
-	local delay=5
-	local status=0
-	while true; do
-		"$@" && return 0
-		status=$?
-		if ((attempt >= max_attempts)); then
-			echo "ERROR: command failed after ${max_attempts} attempts (exit ${status}): $*" >&2
-			return "$status"
-		fi
-		echo "warning: attempt ${attempt}/${max_attempts} failed (exit ${status}); retrying in ${delay}s: $*" >&2
-		sleep "$delay"
-		attempt=$((attempt + 1))
-		delay=$((delay * 2))
 	done
 }
 
