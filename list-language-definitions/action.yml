@@ -1,0 +1,26 @@
+name: List Language Definitions
+description: >
+  Read a language-definitions JSON registry (top-level object keyed by
+  language name) and emit the sorted, comma-joined list of language names as
+  a step output. Used to populate TSLP_LANGUAGES for an "all languages" build.
+
+inputs:
+  definitions-path:
+    description: "Path to the language-definitions JSON file"
+    required: false
+    default: "sources/language_definitions.json"
+
+outputs:
+  names:
+    description: "Sorted, comma-joined language names"
+    value: ${{ steps.list.outputs.names }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get all language names
+      id: list
+      shell: bash
+      run: |
+        LANGS=$(python3 -c "import json; d=json.load(open('${{ inputs.definitions-path }}')); print(','.join(sorted(d.keys())))")
+        echo "names=$LANGS" >> "$GITHUB_OUTPUT"
