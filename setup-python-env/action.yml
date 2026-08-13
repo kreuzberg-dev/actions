@@ -33,7 +33,7 @@ runs:
         bash "${GITHUB_ACTION_PATH}/scripts/uv-lock-hash.sh"
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v9.0.0
+      uses: astral-sh/setup-uv@v10.0.0
       with:
         enable-cache: true
 
