@@ -40,13 +40,21 @@ runs:
         set -euo pipefail
         # alef reads alef.toml in the working directory and compares all
         # configured language manifests against the canonical Cargo.toml.
-        json=$(alef validate versions --json 2>/dev/null || true)
+        #
+        # Empty stdout is NEVER a successful validation: alef emits JSON on every
+        # path it can validate, and prints nothing when it cannot run at all (a
+        # missing alef.toml exits 1 with an empty stdout). Treating that as
+        # "valid" made a crashed or misconfigured validator indistinguishable
+        # from a clean pass, silently disabling this gate. Fail closed and show
+        # why, rather than reporting a pass nobody earned.
+        set +e
+        json=$(alef validate versions --json 2>/tmp/alef-validate-versions.err)
+        rc=$?
+        set -e
         if [[ -z "${json}" ]]; then
-          # No output means no manifests to validate — treat as valid.
-          echo "valid=true" >>"$GITHUB_OUTPUT"
-          echo "mismatches=[]" >>"$GITHUB_OUTPUT"
-          echo "No language manifests configured; skipping version validation."
-          exit 0
+          echo "::error::alef validate versions produced no output (exit ${rc}); cannot verify version consistency" >&2
+          cat /tmp/alef-validate-versions.err >&2 || true
+          exit 1
         fi
         valid=$(echo "${json}" | jq -r '.ok // false')
         mismatches=$(echo "${json}" | jq -c '[.checks[] | select(.ok == false)]')
