@@ -23,3 +23,19 @@ jobs:
 
       - name: Verify disk space freed
         run: df -h /
+
+      # Regression guard: the cleanup used to delete /usr/local/lib/node_modules, which left
+      # /usr/local/bin/npm as a dangling symlink. `npm` stayed on PATH and every call failed with
+      # ENOENT, breaking pnpm/action-setup in consumers far from the cause. Assert npm is not just
+      # present but actually executable.
+      - name: Verify npm still works after cleanup
+        run: |
+          set -euo pipefail
+          if [ -L /usr/local/bin/npm ] && [ ! -e /usr/local/bin/npm ]; then
+            echo "::error::/usr/local/bin/npm is a dangling symlink after cleanup"
+            exit 1
+          fi
+          command -v npm
+          npm --version
+          command -v node
+          node --version
