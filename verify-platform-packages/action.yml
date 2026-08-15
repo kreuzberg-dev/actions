@@ -1,0 +1,85 @@
+name: Verify Platform Packages
+description: >
+  Verify every platform package a napi-style parent manifest declares in
+  optionalDependencies actually exists — as a built binary before publishing
+  (mode: binaries) and as a resolvable registry version afterwards
+  (mode: registry).
+
+  The declared set comes from optionalDependencies and the expected cardinality
+  from napi.targets, so the check cannot be satisfied by a subset: an empty
+  optionalDependencies, a platform directory glob that matches nothing, a
+  declared/discovered set mismatch, or any count mismatch fails the step. The
+  examined counts are printed on every run.
+
+  This guards the failure mode where `napi create-npm-dirs` materialises a
+  directory for every configured target regardless of which build legs ran, so
+  a directory listing looks complete while the parent ships
+  optionalDependencies pointing at versions that were never published.
+
+inputs:
+  manifest-path:
+    description: "Path to the parent package.json declaring optionalDependencies and napi.targets"
+    required: true
+  mode:
+    description: "What to verify: binaries (pre-publish), registry (post-publish), or both"
+    required: false
+    default: "registry"
+  version:
+    description: "Version to verify against (defaults to the parent manifest's version)"
+    required: false
+    default: ""
+  platform-dir:
+    description: >
+      Directory holding the per-platform package directories, each with its own
+      package.json. Defaults to <manifest dir>/npm, the napi convention.
+    required: false
+    default: ""
+  expected-count:
+    description: >
+      Override the expected platform-package count. Required only when the
+      manifest has no napi.targets; without either, the action fails rather
+      than assuming the declared set is complete.
+    required: false
+    default: ""
+  registry:
+    description: "Registry to resolve against (npm, pypi, cratesio, maven, rubygems)"
+    required: false
+    default: "npm"
+  max-attempts:
+    description: "Maximum polling attempts per package while waiting for registry indexing"
+    required: false
+    default: "10"
+
+outputs:
+  declared-count:
+    description: "Number of packages declared in optionalDependencies."
+    value: ${{ steps.verify.outputs.declared-count }}
+  expected-count:
+    description: "Expected platform-package count from napi.targets or the expected-count input."
+    value: ${{ steps.verify.outputs.expected-count }}
+  examined-count:
+    description: "Number of platform directories examined (binaries mode)."
+    value: ${{ steps.verify.outputs.examined-count }}
+  resolved-count:
+    description: "Number of packages that resolved on the registry (registry mode)."
+    value: ${{ steps.verify.outputs.resolved-count }}
+  packages:
+    description: "Comma-separated list of the declared platform package names."
+    value: ${{ steps.verify.outputs.packages }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify platform packages
+      id: verify
+      shell: bash
+      env:
+        INPUT_MANIFEST_PATH: ${{ inputs.manifest-path }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PLATFORM_DIR: ${{ inputs.platform-dir }}
+        INPUT_EXPECTED_COUNT: ${{ inputs.expected-count }}
+        INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+      run: |
+        python3 "${GITHUB_ACTION_PATH}/scripts/verify.py"

@@ -12,6 +12,24 @@ All notable changes to xberg-io/actions are documented in this file.
   drift, and runs `alef snippets check --strict --cache off`.
   (`.github/workflows/reusable-validate.yml`)
 
+## [1.8.133] - 2026-08-15
+
+### Added
+
+- **`verify-platform-packages` action.** Asserts that every platform package a napi-style parent
+  manifest declares in `optionalDependencies` actually exists: `mode: binaries` (pre-publish) requires
+  each declared platform directory to hold a non-empty `*.node` and carry the parent's version, and
+  `mode: registry` (post-publish) requires each declared package to resolve on the registry at the
+  parent version, reusing `wait-for-package`'s polling and backoff for every name rather than a
+  hardcoded subset. The declared set comes from `optionalDependencies` and the expected cardinality
+  from `napi.targets` (or an `expected-count` override), so both failure modes behind
+  html-to-markdown#459 — `napi create-npm-dirs` materialising a directory for every configured target
+  regardless of which build legs ran, and a post-publish gate that named only 2 of 8 packages — fail
+  the step. Examined counts are printed on every run, and an empty `optionalDependencies`, a platform
+  glob that matches nothing, a declared/discovered set mismatch, or any count mismatch is a hard
+  failure rather than a silent pass. (`verify-platform-packages/`,
+  `.github/workflows/test-verify-platform-packages.yml`, `tests/test_verify_platform_packages.py`)
+
 ## [1.8.124] - 2026-08-07
 
 ### Fixed

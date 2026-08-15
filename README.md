@@ -105,6 +105,7 @@ covers `pypi`, `npm`, `wasm`, `rubygems`, `hex`, `maven`, `nuget`, `cratesio`,
 | `generate-elixir-checksums` | RustlerPrecompiled NIF checksum generation |
 | `check-registry` | Check if a package version exists on any registry |
 | `wait-for-package` | Poll registries until a version becomes available |
+| `verify-platform-packages` | Assert every platform package a napi-style parent declares in `optionalDependencies` exists — as a built `*.node` before publishing (`mode: binaries`) and as a resolvable registry version after (`mode: registry`). Reads the declared set from `optionalDependencies` and the expected cardinality from `napi.targets`, prints the examined counts, and fails on an empty set, an unmatched glob, or any set/count mismatch |
 | `upload-release-assets` | Generic GH Release uploader; glob-expand a list of paths/patterns and upload with `--clobber` |
 | `verify-release-assets` | Verify the GH Release contains every expected asset (fnmatch patterns, optional min size) |
 | `finalize-release` | Edit GH Release from draft → published, set/clear prerelease, optionally create Go module tag |

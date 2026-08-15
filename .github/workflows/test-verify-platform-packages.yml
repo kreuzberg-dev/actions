@@ -1,0 +1,86 @@
+name: Test verify-platform-packages
+on:
+  push:
+    paths:
+      - "verify-platform-packages/**"
+      - ".github/workflows/test-verify-platform-packages.yml"
+  pull_request:
+    paths:
+      - "verify-platform-packages/**"
+      - ".github/workflows/test-verify-platform-packages.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build a complete platform package tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          targets = ["linux-x64-gnu", "linux-arm64-gnu", "darwin-x64", "darwin-arm64"]
+          root = pathlib.Path("fixture-good")
+          root.mkdir(parents=True, exist_ok=True)
+          root.joinpath("package.json").write_text(
+              json.dumps(
+                  {
+                      "name": "@xberg-io/demo",
+                      "version": "1.0.0",
+                      "optionalDependencies": {f"@xberg-io/demo-{t}": "1.0.0" for t in targets},
+                      "napi": {"targets": targets},
+                  }
+              )
+          )
+          for target in targets:
+              directory = root / "npm" / target
+              directory.mkdir(parents=True, exist_ok=True)
+              directory.joinpath("package.json").write_text(
+                  json.dumps({"name": f"@xberg-io/demo-{target}", "version": "1.0.0"})
+              )
+              directory.joinpath("demo.node").write_bytes(b"\x00" * 64)
+          PY
+
+      - name: Verify the complete tree passes
+        id: good
+        uses: ./verify-platform-packages
+        with:
+          manifest-path: fixture-good/package.json
+          mode: binaries
+
+      - name: Confirm the counts were reported
+        shell: bash
+        env:
+          DECLARED: ${{ steps.good.outputs.declared-count }}
+          EXAMINED: ${{ steps.good.outputs.examined-count }}
+        run: |
+          if [[ "${DECLARED}" != "4" || "${EXAMINED}" != "4" ]]; then
+            echo "expected declared=4 examined=4, got declared=${DECLARED} examined=${EXAMINED}"
+            exit 1
+          fi
+
+      - name: Remove one built binary
+        shell: bash
+        run: rm fixture-good/npm/darwin-arm64/demo.node
+
+      - name: Verify the incomplete tree fails
+        id: bad
+        continue-on-error: true
+        uses: ./verify-platform-packages
+        with:
+          manifest-path: fixture-good/package.json
+          mode: binaries
+
+      - name: Confirm the missing binary was a hard failure
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.bad.outcome }}
+        run: |
+          if [[ "${OUTCOME}" != "failure" ]]; then
+            echo "expected the action to fail on a missing binary, got outcome=${OUTCOME}"
+            exit 1
+          fi
