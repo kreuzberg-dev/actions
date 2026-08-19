@@ -308,24 +308,11 @@ jobs:
           install-cppcheck: "false"
           install-shellcheck: "false"
 
-      - name: Install alef CLI
-        if: ${{ inputs.check-fixture-snippets }}
-        uses: xberg-io/actions/install-alef@v1
-        with:
-          version: ${{ inputs.alef-version }}
-
-      - name: Generate fixture snippets
-        if: ${{ inputs.check-fixture-snippets }}
-        run: alef e2e generate
-
-      - name: Check fixture snippet drift
-        if: ${{ inputs.check-fixture-snippets }}
-        run: git diff --exit-code
-
-      - name: Validate fixture snippets
-        if: ${{ inputs.check-fixture-snippets }}
-        run: alef snippets check --strict --cache off
-
+      # ~keep poly must be installed before the alef steps below, not after. `alef e2e generate`
+      # formats everything it emits through `poly fmt` and treats an absent binary as fatal, not
+      # as a reason to skip: html-to-markdown run 32236292956 died here with "formatting failed
+      # for 16 of 16 language(s): ... poly not found on PATH". Ordering poly after the generate
+      # step meant the job could never pass with `check-fixture-snippets: true`.
       - name: Resolve latest poly version
         id: poly-latest
         if: ${{ inputs.poly-version == '' }}
@@ -356,6 +343,24 @@ jobs:
         uses: Goldziher/poly@v0
         with:
           version: ${{ inputs.poly-version != '' && inputs.poly-version || steps.poly-latest.outputs.version }}
+
+      - name: Install alef CLI
+        if: ${{ inputs.check-fixture-snippets }}
+        uses: xberg-io/actions/install-alef@v1
+        with:
+          version: ${{ inputs.alef-version }}
+
+      - name: Generate fixture snippets
+        if: ${{ inputs.check-fixture-snippets }}
+        run: alef e2e generate
+
+      - name: Check fixture snippet drift
+        if: ${{ inputs.check-fixture-snippets }}
+        run: git diff --exit-code
+
+      - name: Validate fixture snippets
+        if: ${{ inputs.check-fixture-snippets }}
+        run: alef snippets check --strict --cache off
 
       - name: Format check
         run: poly fmt --check .
