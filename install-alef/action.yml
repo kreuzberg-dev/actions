@@ -8,6 +8,14 @@ inputs:
       release), or "main" to build the current main commit from source.
     required: false
     default: "latest"
+  allow-unreleased:
+    description: >
+      Opt in to building the unpinned main branch when the requested version has
+      neither a release archive nor a buildable tag. Off by default: a missing
+      pinned release fails the job instead of silently installing main, because a
+      main build voids the alef.toml pin for every downstream freshness gate.
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -32,6 +40,7 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        ALEF_ALLOW_UNRELEASED: ${{ inputs.allow-unreleased }}
       run: |
         "${{ github.action_path }}/scripts/unix.sh" "${{ steps.meta.outputs.install_ref }}"
 
@@ -42,6 +51,7 @@ runs:
       shell: pwsh
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        ALEF_ALLOW_UNRELEASED: ${{ inputs.allow-unreleased }}
       run: |
         & '${{ github.action_path }}/scripts/windows.ps1' '${{ steps.meta.outputs.install_ref }}'
 

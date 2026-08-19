@@ -20,7 +20,7 @@ Shared GitHub Actions composite actions and reusable workflows for the xberg-io 
 | `setup-chrome` | Chrome-compatible browser via `browser-actions/setup-chrome` (or aptmium on linux-arm64) |
 | `setup-chromium` | Non-snap Chromium for headless e2e tests; uses Playwright browser installer; outputs `chromium-path` for direct binary use |
 | `install-task` | [Task](https://taskfile.dev) runner, installed from the official Task release installer (`latest` by default) |
-| `install-alef` | Alef CLI installation |
+| `install-alef` | Alef CLI installation. `version` takes a semver tag, `latest` (reads the `alef.toml` pin), or `main`. A pinned version with no release archive and no buildable tag fails the job; set `allow-unreleased: true` to opt in to an unpinned `main` build instead |
 | `install-wasi-sdk` | WASI SDK for WebAssembly |
 | `install-homebrew-linux` | Linuxbrew (Homebrew for Linux) for runners that need to build bottles |
 | `setup-textlint` | textlint + the xberg-io standard rule set in one batched npm install |

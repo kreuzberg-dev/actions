@@ -4,6 +4,18 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `install-alef` no longer silently builds `main` when the pinned version has no release.**
+  When the release archive was missing, the action fell back to `cargo install --tag v$version`, and when
+  that failed too it fell back to `--branch main` with only an informational log line. Any repo pinning a
+  version that was never tagged therefore got an unpinned `main` build while every downstream freshness
+  gate reported success — the pin examined nothing. The tag build is still attempted (it covers the
+  tag-vs-binary-upload race), but a failure now fails the job with a `::error::` naming the version.
+  The old behaviour is available per-call via the new `allow-unreleased: true` input, which builds `main`
+  and emits a `::warning::` that the binary is not the requested version.
+  (`install-alef/action.yml`, `install-alef/scripts/unix.sh`, `install-alef/scripts/windows.ps1`)
+
 ### Added
 
 - **`reusable-validate` can enforce fixture-backed documentation snippets.** Callers can opt in with

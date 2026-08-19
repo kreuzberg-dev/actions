@@ -31,7 +31,12 @@ function Build-FromSource {
     Write-Output "Building alef v$ref from source via cargo install --tag..."
     cargo install --git https://github.com/xberg-io/alef --tag "v$ref" --locked --force alef
     if ($LASTEXITCODE -ne 0) {
-      Write-Output "Tag build failed; falling back to main branch..."
+      if ($env:ALEF_ALLOW_UNRELEASED -ne "true") {
+        throw "alef v$ref could not be installed: no release archive and no buildable tag v$ref in xberg-io/alef. The pinned alef version is not released - cut the release, correct the pin in alef.toml, or opt in to an unpinned build with allow-unreleased: true (or version: main)."
+      }
+      # ~keep allow-unreleased is an explicit opt-out of version pinning: the binary this
+      # produces is an untagged main build, while the action's cache key still says v$ref.
+      Write-Output "::warning::alef v$ref has no usable tag; allow-unreleased is set, so an unpinned main build is used instead. This binary is NOT v$ref."
       cargo install --git https://github.com/xberg-io/alef --branch main --locked --force alef
     }
   }
