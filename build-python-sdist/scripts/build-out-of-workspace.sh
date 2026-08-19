@@ -145,7 +145,16 @@ if [ -f Cargo.toml ] && grep -q 'workspace = true' Cargo.toml 2>/dev/null; then
 		ws_license=$(echo "$ws_section" | grep "^license" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
 	fi
 
+	# ~keep The dotted form (`version.workspace = true`) is what cargo emits and what
+	# alef generates; it is NOT matched by the `^version = ` deletes below, so without
+	# this rule `s/workspace = true//` truncated it to a bare `version.` and every
+	# rewritten manifest became invalid TOML ("Invalid initial character for a key
+	# part"). Delete the whole line instead: the three keys we can recover are re-added
+	# from [workspace.package] just below, and the rest (readme/keywords/categories) are
+	# publish-only metadata this build does not need. The trailing bare substitution
+	# stays for `[lints]`-style `workspace = true`, which has no key to delete.
 	sed -i.bak \
+		-e '/^[A-Za-z0-9_-]*\.workspace[[:space:]]*=[[:space:]]*true/d' \
 		-e '/^edition = /d' \
 		-e '/^version = /d' \
 		-e '/^license = /d' \
