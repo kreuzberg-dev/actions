@@ -19,14 +19,14 @@ checksum mismatch — on download or when reusing a cached object — fails the 
 | `path` | no | `test_documents` | Directory where the `test_documents` submodule is checked out. |
 | `include` | no | `**` | Newline-separated glob patterns matched against manifest paths (e.g. `pdf/**`). |
 | `bucket` | no | `xberg-test-documents` | GCS bucket serving objects at `https://storage.googleapis.com/<bucket>/objects/<sha256>`. |
-| `cache` | no | `true` | Cache downloaded objects via `actions/cache`, keyed by the manifest content and normalised include patterns. |
+| `cache` | no | `true` | Cache downloaded objects via `actions/cache`, keyed by the normalised include patterns and the manifest content, with a `restore-keys` fallback on the include-pattern prefix. |
 | `concurrency` | no | `8` | Number of objects to download in parallel. |
 
 ## Outputs
 
 | Name | Description |
 |---|---|
-| `cache-hit` | Whether the object cache was restored on an exact key match. |
+| `cache-hit` | Whether the object cache was restored on an *exact* key match. A `restore-keys` prefix match reports `false` here while still seeding the object store, so a delta fetch looks like `cache-hit: false` with a small `objects-fetched`. |
 | `objects-fetched` | Number of unique objects downloaded from the bucket this run (`0` on a full cache hit). |
 | `bytes-fetched` | Total bytes downloaded from the bucket this run. |
 
@@ -61,4 +61,9 @@ Fetch everything (default):
 - Safe to run twice in the same job: already-cached objects are re-verified against their expected
   sha256 rather than re-downloaded, and a corrupted cache entry is detected and re-fetched instead
   of silently reused.
+- Editing `corpus.lock.json` does **not** force a full re-download. The cache key is
+  `fetch-test-documents-v1-<include-hash>-<manifest-hash>`, and `restore-keys` falls back to the
+  `<include-hash>` prefix, so the previous run's object store is restored and only the objects that
+  actually changed are fetched. The include hash leads deliberately: it keeps caches for different
+  `include` selections separate, so a narrow job never restores (and then re-saves) the whole corpus.
 - The read path needs zero credentials by design; do not add authentication to this action.

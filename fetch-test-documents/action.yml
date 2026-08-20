@@ -32,7 +32,10 @@ inputs:
     default: "8"
 outputs:
   cache-hit:
-    description: Whether the object cache was restored on an exact key match.
+    description: >-
+      Whether the object cache was restored on an exact key match. A prefix match via restore-keys
+      reports false here while still seeding the object store, so a delta fetch shows cache-hit
+      false with a small objects-fetched count.
     value: ${{ steps.restore-cache.outputs.cache-hit }}
   objects-fetched:
     description: Number of unique objects downloaded from the bucket this run (0 on a full cache hit).
@@ -76,6 +79,12 @@ runs:
       with:
         path: ${{ runner.temp }}/fetch-test-documents/objects
         key: ${{ steps.cache-key.outputs.key }}
+        # ~keep Without this fallback, any edit to corpus.lock.json changes the exact key and every
+        # job across every consuming repo re-downloads the entire selection from the bucket. The
+        # object store is content-addressed and fetch.sh skips anything already present and hash
+        # verified, so restoring the previous run's store turns a manifest bump into a delta fetch.
+        restore-keys: |
+          ${{ steps.cache-key.outputs.restore-prefix }}
 
     - name: Fetch and materialise objects
       id: fetch
