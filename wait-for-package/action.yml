@@ -1,15 +1,17 @@
 name: Wait for Package Indexing
 description: >
   Poll a package registry until a specific version becomes available.
-  Supports npm, pypi, cratesio, maven, and rubygems registries.
+  Supports cratesio, hex, maven, npm, nuget, packagist, pypi and rubygems registries.
   Uses exponential backoff with configurable max attempts.
 
 inputs:
   registry:
-    description: "Registry to poll (npm, pypi, cratesio, maven, rubygems)"
+    description: "Registry to poll (cratesio, hex, maven, npm, nuget, packagist, pypi, rubygems)"
     required: true
   package:
-    description: "Package name (e.g., @scope/pkg for npm, crate-name for crates.io)"
+    description: >
+      Package name (e.g. @scope/pkg for npm, crate-name for crates.io,
+      vendor/name for packagist, group:artifact or a bare artifact id for maven).
     required: true
   version:
     description: "Semantic version to wait for (e.g., 1.2.3)"
@@ -19,7 +21,9 @@ inputs:
     required: false
     default: "10"
   maven-group-id:
-    description: "Maven group ID (required for maven registry)"
+    description: >
+      Maven group ID. Only needed when `package` is a bare artifact id; a
+      `group:artifact` package already carries the group.
     required: false
     default: ""
 

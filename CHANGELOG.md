@@ -46,6 +46,22 @@ All notable changes to xberg-io/actions are documented in this file.
   shipping an empty description. Nothing is copied when the manifest declares no readme.
   (`build-python-sdist/scripts/build-out-of-workspace.sh`)
 
+- **`wait-for-package` verifies maven against repo1 and accepts `group:artifact`.** The maven check
+  queried `search.maven.org/solrsearch`, whose index lags the repository by hours, and it required
+  the group as a separate `maven-group-id` — so a caller passing `package: io.xberg:html-to-markdown`
+  with no group id burned every attempt reporting "not yet available" for an artifact that was
+  already downloadable from Maven Central. The check now resolves the coordinate from either form
+  and asks `repo1.maven.org/maven2/<group>/<artifact>/<version>/` directly, which is what consumers
+  actually resolve against.
+  (`wait-for-package/action.yml`, `wait-for-package/scripts/wait.py`)
+
+- **`wait-for-package` supports the hex, nuget and packagist registries.** All three are passed by
+  the generated publish workflows, none had a handler, and the action answered a successful publish
+  with `Error: Unsupported registry` and a failed job. `hex` reads `hex.pm/api/packages/<name>`,
+  `nuget` the v3 flat container, and `packagist` the `repo.packagist.org` metadata endpoint that
+  Composer itself resolves against (accepting both `1.2.3` and `v1.2.3` tags).
+  (`wait-for-package/action.yml`, `wait-for-package/scripts/wait.py`)
+
 ## [1.8.133] - 2026-08-15
 
 ### Added

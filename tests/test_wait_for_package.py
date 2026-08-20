@@ -92,16 +92,141 @@ def test_check_pypi_version_mismatch(monkeypatch):
     assert wait_mod.check_pypi("xberg", "1.2.3") is False
 
 
+def _record_urls(monkeypatch, status: int = 200, body: str = "{}") -> list[str]:
+    captured: list[str] = []
+
+    def mock_http_get(url, **kwargs):
+        captured.append(url)
+        return (status, body)
+
+    monkeypatch.setattr(wait_mod, "http_get", mock_http_get)
+    return captured
+
+
 def test_check_maven_found(monkeypatch):
-    body = json.dumps({"response": {"numFound": 1, "docs": []}})
-    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, ""))
     assert wait_mod.check_maven("myartifact", "1.2.3", group_id="com.example") is True
+
+
+def test_check_maven_not_found(monkeypatch):
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (404, ""))
+    assert wait_mod.check_maven("myartifact", "1.2.3", group_id="com.example") is False
 
 
 def test_check_maven_no_group_id(monkeypatch, capsys):
     monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, "{}"))
     result = wait_mod.check_maven("myartifact", "1.2.3", group_id="")
     assert result is False
+
+
+def test_check_maven_accepts_group_artifact_coordinate(monkeypatch):
+    captured = _record_urls(monkeypatch)
+
+    assert wait_mod.check_maven("com.example:myartifact", "1.2.3", group_id="") is True
+    assert captured == ["https://repo1.maven.org/maven2/com/example/myartifact/1.2.3/"]
+
+
+def test_check_maven_queries_repository_not_search_index(monkeypatch):
+    captured = _record_urls(monkeypatch)
+
+    wait_mod.check_maven("myartifact", "1.2.3", group_id="com.example")
+
+    assert captured == ["https://repo1.maven.org/maven2/com/example/myartifact/1.2.3/"]
+    assert "search.maven.org" not in captured[0]
+
+
+def test_split_maven_coordinate_prefers_the_coordinate_form():
+    assert wait_mod.split_maven_coordinate("com.example:art", "other.group") == ("com.example", "art")
+
+
+def test_split_maven_coordinate_falls_back_to_group_id():
+    assert wait_mod.split_maven_coordinate("art", "com.example") == ("com.example", "art")
+
+
+def test_check_hex_found(monkeypatch):
+    body = json.dumps({"releases": [{"version": "1.2.3"}, {"version": "1.2.2"}]})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    assert wait_mod.check_hex("my_package", "1.2.3") is True
+
+
+def test_check_hex_not_found(monkeypatch):
+    body = json.dumps({"releases": [{"version": "1.2.2"}]})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    assert wait_mod.check_hex("my_package", "1.2.3") is False
+
+
+def test_check_hex_unknown_package(monkeypatch):
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (404, ""))
+    assert wait_mod.check_hex("my_package", "1.2.3") is False
+
+
+def test_check_hex_queries_the_package_api(monkeypatch):
+    captured = _record_urls(monkeypatch, body=json.dumps({"releases": []}))
+
+    wait_mod.check_hex("my_package", "1.2.3")
+
+    assert captured == ["https://hex.pm/api/packages/my_package"]
+
+
+def test_check_hex_tolerates_unexpected_payload(monkeypatch):
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, "not json"))
+    assert wait_mod.check_hex("my_package", "1.2.3") is False
+
+
+def test_check_nuget_found_case_insensitively(monkeypatch):
+    body = json.dumps({"versions": ["1.2.2", "1.2.3"]})
+    captured = _record_urls(monkeypatch, body=body)
+
+    assert wait_mod.check_nuget("Vendor.MyPackage", "1.2.3") is True
+    assert captured == ["https://api.nuget.org/v3-flatcontainer/vendor.mypackage/index.json"]
+
+
+def test_check_nuget_not_found(monkeypatch):
+    body = json.dumps({"versions": ["1.2.2"]})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    assert wait_mod.check_nuget("Vendor.MyPackage", "1.2.3") is False
+
+
+def test_check_packagist_found(monkeypatch):
+    body = json.dumps({"packages": {"vendor/pkg": [{"version": "1.2.2"}, {"version": "1.2.3"}]}})
+    captured = _record_urls(monkeypatch, body=body)
+
+    assert wait_mod.check_packagist("vendor/pkg", "1.2.3") is True
+    assert captured == ["https://repo.packagist.org/p2/vendor/pkg.json"]
+
+
+def test_check_packagist_accepts_v_prefixed_tags(monkeypatch):
+    body = json.dumps({"packages": {"vendor/pkg": [{"version": "v1.2.3"}]}})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    assert wait_mod.check_packagist("vendor/pkg", "1.2.3") is True
+
+
+def test_check_packagist_not_found(monkeypatch):
+    body = json.dumps({"packages": {"vendor/pkg": [{"version": "v1.2.2"}]}})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    assert wait_mod.check_packagist("vendor/pkg", "1.2.3") is False
+
+
+def test_every_registry_the_publish_workflows_use_has_a_handler():
+    expected = {"cratesio", "hex", "maven", "npm", "nuget", "packagist", "pypi", "rubygems"}
+    assert set(wait_mod.REGISTRIES) == expected
+
+
+def test_wait_for_package_hex_dispatches_to_check_hex(monkeypatch):
+    body = json.dumps({"releases": [{"version": "1.2.3"}]})
+    monkeypatch.setattr(wait_mod, "http_get", lambda url, **kwargs: (200, body))
+    monkeypatch.setattr(wait_mod.time, "sleep", lambda _: None)
+    assert wait_mod.wait_for_package("hex", "my_package", "1.2.3", max_attempts=1) is True
+
+
+def test_wait_for_package_maven_accepts_coordinate_without_group_input(monkeypatch):
+    captured = _record_urls(monkeypatch)
+    monkeypatch.setattr(wait_mod.time, "sleep", lambda _: None)
+
+    result = wait_mod.wait_for_package("maven", "com.example:myartifact", "1.2.3", max_attempts=1)
+
+    assert result is True
+    assert captured == ["https://repo1.maven.org/maven2/com/example/myartifact/1.2.3/"]
 
 
 def test_check_rubygems_found(monkeypatch):

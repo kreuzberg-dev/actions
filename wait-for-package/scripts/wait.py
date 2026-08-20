@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Wait for a package version to appear on a registry with exponential backoff.
 
-Supports: npm, pypi, cratesio, maven, rubygems
+Supports: cratesio, hex, maven, npm, nuget, packagist, pypi, rubygems
+
+Every check queries the registry that actually serves the package, never a search
+index: search indexes lag publication by hours, so polling one reports "not yet
+available" long after the artifact is downloadable.
 
 Usage (GitHub Actions via env vars):
     INPUT_REGISTRY=pypi INPUT_PACKAGE=xberg INPUT_VERSION=4.4.6 python3 wait.py
@@ -125,20 +129,35 @@ def check_cratesio(package: str, version: str) -> bool:
     return False
 
 
+def split_maven_coordinate(package: str, group_id: str = "") -> tuple[str, str]:
+    """Split a Maven package input into ``(group, artifact)``.
+
+    Callers either pass the full ``group:artifact`` coordinate as the package name or
+    a bare artifact id plus a separate ``maven-group-id``; both forms are accepted.
+    """
+    if ":" in package:
+        group, _, artifact = package.partition(":")
+        return group.strip(), artifact.strip()
+    return group_id.strip(), package.strip()
+
+
 def check_maven(package: str, version: str, group_id: str = "") -> bool:
-    """Check Maven Central solrsearch API. Requires group_id."""
-    if not group_id:
-        print("Error: maven-group-id required for maven registry", file=sys.stderr)
+    """Check Maven Central's repository for the published version directory.
+
+    The solrsearch index this used to query lags repo1 by hours, so a freshly
+    published artifact polled through it reports "not yet available" for the entire
+    backoff window. repo1 is what consumers resolve against, so ask it directly.
+    """
+    group, artifact = split_maven_coordinate(package, group_id)
+    if not group or not artifact:
+        print(
+            "Error: maven needs a group — pass package as 'group:artifact' or set maven-group-id",
+            file=sys.stderr,
+        )
         return False
-    url = f"https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{package}+AND+v:{version}&rows=1&wt=json"
-    status, body = http_get(url)
-    if status != HTTP_OK or not body:
-        return False
-    try:
-        data = json.loads(body)
-    except json.JSONDecodeError:
-        return False
-    return int(data.get("response", {}).get("numFound", 0)) > 0
+    group_path = group.replace(".", "/")
+    status, _ = http_get(f"https://repo1.maven.org/maven2/{group_path}/{artifact}/{version}/")
+    return status == HTTP_OK
 
 
 def check_rubygems(package: str, version: str) -> bool:
@@ -153,11 +172,75 @@ def check_rubygems(package: str, version: str) -> bool:
     return any(v.get("number") == version for v in versions)
 
 
+def check_hex(package: str, version: str) -> bool:
+    """Check the hex.pm API package document for the exact release version."""
+    encoded = urllib.parse.quote(package, safe="")
+    status, body = http_get(f"https://hex.pm/api/packages/{encoded}")
+    if status != HTTP_OK or not body:
+        return False
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    releases = data.get("releases")
+    if not isinstance(releases, list):
+        return False
+    return any(isinstance(r, dict) and r.get("version") == version for r in releases)
+
+
+def check_nuget(package: str, version: str) -> bool:
+    """Check the NuGet v3 flat container, the feed the client itself restores from.
+
+    Package ids and versions are lower-cased in that index regardless of the casing
+    the package was pushed with.
+    """
+    encoded = urllib.parse.quote(package.lower(), safe="")
+    status, body = http_get(f"https://api.nuget.org/v3-flatcontainer/{encoded}/index.json")
+    if status != HTTP_OK or not body:
+        return False
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    versions = data.get("versions")
+    if not isinstance(versions, list):
+        return False
+    return any(str(v).lower() == version.lower() for v in versions)
+
+
+def check_packagist(package: str, version: str) -> bool:
+    """Check the Packagist metadata endpoint Composer resolves against.
+
+    Composer releases are tagged either ``1.2.3`` or ``v1.2.3``; both count as the
+    requested version.
+    """
+    status, body = http_get(f"https://repo.packagist.org/p2/{package}.json")
+    if status != HTTP_OK or not body:
+        return False
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    packages = data.get("packages")
+    if not isinstance(packages, dict):
+        return False
+    wanted = {version, f"v{version}"}
+    return any(
+        isinstance(entry, dict) and entry.get("version") in wanted
+        for releases in packages.values()
+        if isinstance(releases, list)
+        for entry in releases
+    )
+
+
 REGISTRIES: dict[str, CheckFn] = {
-    "npm": check_npm,
-    "pypi": check_pypi,
     "cratesio": check_cratesio,
+    "hex": check_hex,
     "maven": check_maven,
+    "npm": check_npm,
+    "nuget": check_nuget,
+    "packagist": check_packagist,
+    "pypi": check_pypi,
     "rubygems": check_rubygems,
 }
 

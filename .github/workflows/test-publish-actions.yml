@@ -173,6 +173,31 @@ jobs:
           version: "1.0.200"
           max-attempts: "3"
 
+      - name: Wait for known published package (hex)
+        uses: ./wait-for-package
+        with:
+          registry: hex
+          package: jason
+          version: "1.4.5"
+          max-attempts: "3"
+
+      - name: Wait for known published package (maven, group:artifact)
+        uses: ./wait-for-package
+        with:
+          registry: maven
+          package: "com.google.guava:guava"
+          version: "33.0.0-jre"
+          max-attempts: "3"
+
+      - name: Wait for known published package (maven, separate group id)
+        uses: ./wait-for-package
+        with:
+          registry: maven
+          package: guava
+          version: "33.0.0-jre"
+          maven-group-id: com.google.guava
+          max-attempts: "3"
+
   test-publish-gleam-dry-run:
     runs-on: ubuntu-latest
     steps:
