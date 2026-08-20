@@ -82,7 +82,10 @@ if grep -q 'workspace = true' Cargo.toml 2>/dev/null; then
 	fi
 
 	rm -f Cargo.toml.bak
-	echo "Stripped workspace inheritance from binding crate Cargo.toml"
+	# ~keep Progress goes to stderr: this script's stdout is captured verbatim into
+	# `extension-path`, and a second line there makes the runner reject the whole
+	# `$GITHUB_OUTPUT` write ("Unable to process file command 'output' successfully").
+	echo "Stripped workspace inheritance from binding crate Cargo.toml" >&2
 fi
 
 strip_internal_paths Cargo.toml
@@ -101,12 +104,14 @@ strip_internal_paths Cargo.toml
 if [ -f "$WORKSPACE_ROOT/Cargo.lock" ]; then
 	cp "$WORKSPACE_ROOT/Cargo.lock" Cargo.lock
 else
-	cargo generate-lockfile
+	cargo generate-lockfile >&2
 fi
 
-cargo update -p time --precise 0.3.47 || true
+cargo update -p time --precise 0.3.47 >&2 || true
 
-cargo build --release ${CARGO_FEATURES:+--features "$CARGO_FEATURES"}
+# ~keep Every build command sends its stdout to stderr: stdout is this script's value
+# channel and the caller reads it straight into `extension-path`.
+cargo build --release ${CARGO_FEATURES:+--features "$CARGO_FEATURES"} >&2
 
 mkdir -p "$WORKSPACE_ROOT/target/release"
 

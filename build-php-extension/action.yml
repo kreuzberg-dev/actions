@@ -69,11 +69,20 @@ runs:
         CARGO_FEATURES: ${{ inputs.cargo-features }}
       run: |
         set -euo pipefail
+        # ~keep The build script prints the extension path as its last stdout line.
+        # Keep only that line and write it with the heredoc delimiter form: a single
+        # stray progress line ahead of it used to make this a multi-line value whose
+        # extra line carried no `=`, and the runner then rejected the entire file
+        # command ("Unable to process file command 'output' successfully").
         extension_path=$( \
           bash "${{ github.action_path }}/scripts/build-out-of-workspace.sh" \
-          "$CRATE_NAME" "$LIB_NAME" "$GITHUB_WORKSPACE"
+          "$CRATE_NAME" "$LIB_NAME" "$GITHUB_WORKSPACE" | tail -n 1
         )
-        echo "extension-path=$extension_path" >> "$GITHUB_OUTPUT"
+        {
+          echo "extension-path<<GHA_EXTENSION_PATH_EOF"
+          echo "$extension_path"
+          echo "GHA_EXTENSION_PATH_EOF"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Install LLVM for libclang (Windows)
       if: runner.os == 'Windows'

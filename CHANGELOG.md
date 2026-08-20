@@ -24,6 +24,18 @@ All notable changes to xberg-io/actions are documented in this file.
   drift, and runs `alef snippets check --strict --cache off`.
   (`.github/workflows/reusable-validate.yml`)
 
+### Fixed
+
+- **`build-php-extension` no longer corrupts its own `extension-path` output.** The build script's
+  stdout is read straight into `$GITHUB_OUTPUT`, but on any crate that inherits `workspace = true`
+  it also printed `Stripped workspace inheritance from binding crate Cargo.toml` there. The output
+  value then spanned two lines, the second carried no `=`, and the runner rejected the entire file
+  command (`Unable to process file command 'output' successfully` / `Invalid format '<path>'`),
+  failing every matrix leg of the PHP build. The progress line and the build commands' stdout now
+  go to stderr, and the caller keeps only the last stdout line and writes it with the heredoc
+  delimiter form, so a stray line can no longer break the write.
+  (`build-php-extension/action.yml`, `build-php-extension/scripts/build-out-of-workspace.sh`)
+
 ## [1.8.133] - 2026-08-15
 
 ### Added
