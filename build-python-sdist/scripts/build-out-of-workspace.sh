@@ -38,6 +38,79 @@ open(p, 'w').write(''.join(out))
 PY
 }
 
+# ~keep maturin refuses to produce metadata when the crate manifest's `readme` names a
+# file it cannot open, and the isolated tree holds only the package dir and the crate —
+# never the workspace-root README that `readme.workspace = true` resolves to (cargo
+# rewrites the inherited path relative to the package, e.g. `../../README.md`). Copy the
+# referenced file to where the isolated manifest expects it rather than dropping the key,
+# so the sdist keeps the real long_description instead of shipping an empty description.
+# Args: <iso root> <iso crate manifest> <real workspace root> <real crate dir>
+materialize_readme() {
+	python3 - "$1" "$2" "$3" "$4" <<'PY'
+import os
+import re
+import shutil
+import sys
+
+iso_root, iso_manifest, workspace_root, crate_dir = sys.argv[1:5]
+
+INHERITED = object()
+
+
+def table(text, name):
+    """Return the body of a top-level `[name]` table, or '' when absent."""
+    header = re.search(r'(?m)^\[' + re.escape(name) + r'\][ \t]*$', text)
+    if not header:
+        return ''
+    start = header.end()
+    nxt = re.search(r'(?m)^\[', text[start:])
+    return text[start:start + nxt.start()] if nxt else text[start:]
+
+
+def readme_key(section):
+    """Return the readme path, INHERITED for workspace inheritance, or None."""
+    if re.search(r'(?m)^[ \t]*readme[ \t]*\.[ \t]*workspace[ \t]*=[ \t]*true', section):
+        return INHERITED
+    if re.search(r'(?m)^[ \t]*readme[ \t]*=[ \t]*\{[^}]*workspace[ \t]*=[ \t]*true', section):
+        return INHERITED
+    literal = re.search(r'(?m)^[ \t]*readme[ \t]*=[ \t]*"([^"]+)"', section)
+    return literal.group(1) if literal else None
+
+
+with open(iso_manifest) as handle:
+    value = readme_key(table(handle.read(), 'package'))
+
+if value is None:
+    sys.exit(0)
+
+if value is INHERITED:
+    with open(os.path.join(workspace_root, 'Cargo.toml')) as handle:
+        inherited = readme_key(table(handle.read(), 'workspace.package'))
+    if not isinstance(inherited, str):
+        sys.exit(0)
+    # An inherited readme path is relative to the workspace root, and the isolated tree
+    # mirrors the workspace layout, so the same relative path is where cargo will look.
+    source = os.path.normpath(os.path.join(workspace_root, inherited))
+    target = os.path.normpath(os.path.join(iso_root, inherited))
+else:
+    source = os.path.normpath(os.path.join(crate_dir, value))
+    target = os.path.normpath(os.path.join(os.path.dirname(iso_manifest), value))
+
+if not os.path.isfile(source):
+    print(f'Warning: manifest readme not found at {source}', file=sys.stderr)
+    sys.exit(0)
+if os.path.commonpath([os.path.abspath(target), os.path.abspath(iso_root)]) != os.path.abspath(iso_root):
+    print(f'Warning: manifest readme resolves outside the isolated tree at {target}', file=sys.stderr)
+    sys.exit(0)
+if os.path.exists(target):
+    sys.exit(0)
+
+os.makedirs(os.path.dirname(target), exist_ok=True)
+shutil.copyfile(source, target)
+print(f'Materialized manifest readme at {os.path.relpath(target, iso_root)}')
+PY
+}
+
 if [ -f "$WORKSPACE_ROOT/$INPUT" ]; then
 	FULL_MANIFEST_PATH="$WORKSPACE_ROOT/$INPUT"
 	PARENT_DIR=$(dirname "$FULL_MANIFEST_PATH")
@@ -113,6 +186,8 @@ if deps.strip():
     out += ['[workspace.dependencies]', deps.strip('\n'), '']
 open(dst, 'w').write('\n'.join(out) + '\n')
 PY
+
+		materialize_readme "$ISO" "$ISO/$crate_rel/Cargo.toml" "$WORKSPACE_ROOT" "$CRATE_DIR"
 
 		if [ -f "$WORKSPACE_ROOT/Cargo.lock" ]; then
 			cp "$WORKSPACE_ROOT/Cargo.lock" "$ISO/Cargo.lock"

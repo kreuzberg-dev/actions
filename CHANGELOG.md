@@ -36,6 +36,16 @@ All notable changes to xberg-io/actions are documented in this file.
   delimiter form, so a stray line can no longer break the write.
   (`build-php-extension/action.yml`, `build-php-extension/scripts/build-out-of-workspace.sh`)
 
+- **`build-python-sdist` split-layout isolation keeps the manifest's README.** The isolated
+  single-member workspace copied only the python package dir and the binding crate, so a crate
+  carrying `readme.workspace = true` (or a crate-relative `readme = "../../README.md"`) pointed at
+  a file that did not exist in the temp tree and maturin failed the whole build with
+  `Failed to read Readme specified in Cargo.toml`. The referenced file is now materialized at the
+  path the isolated manifest resolves to — inherited paths relative to the workspace root, literal
+  paths relative to the crate — so the sdist keeps its real long_description instead of failing or
+  shipping an empty description. Nothing is copied when the manifest declares no readme.
+  (`build-python-sdist/scripts/build-out-of-workspace.sh`)
+
 ## [1.8.133] - 2026-08-15
 
 ### Added
