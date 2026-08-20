@@ -62,6 +62,16 @@ All notable changes to xberg-io/actions are documented in this file.
   Composer itself resolves against (accepting both `1.2.3` and `v1.2.3` tags).
   (`wait-for-package/action.yml`, `wait-for-package/scripts/wait.py`)
 
+- **`build-php-extension` and `build-python-sdist` no longer die on macOS runners when the
+  binding crate inherits workspace metadata.** Both isolation scripts read `[workspace.package]`
+  with `sed -n '/.../,/^\[/p' | head -n -1`. A negative `head` count is a GNU extension; BSD
+  `head` answers `head: illegal line count -- -1` and exits 1, which under `set -euo pipefail`
+  killed the whole build (seen as every `macos-arm64` PHP job failing while the linux matrix
+  passed). Both now use the POSIX `sed '$d'`, which drops the same trailing section header.
+  The existing test fixture declared a bare `[workspace]` with no `[workspace.package]`, so the
+  affected branch never executed under test; a fixture that does declare it has been added,
+  along with a repo-wide guard against `head -n -N` in any shell script.
+
 ## [1.8.133] - 2026-08-15
 
 ### Added

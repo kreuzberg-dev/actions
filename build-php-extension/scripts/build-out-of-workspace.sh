@@ -49,7 +49,12 @@ if grep -q 'workspace = true' Cargo.toml 2>/dev/null; then
 	ws_license=""
 
 	if grep -q "^\[workspace\.package\]" "$WORKSPACE_ROOT/Cargo.toml"; then
-		ws_section=$(sed -n '/^\[workspace\.package\]/,/^\[/p' "$WORKSPACE_ROOT/Cargo.toml" | head -n -1)
+		# ~keep `sed '$d'` (drop the last line) rather than `head -n -1`: negative counts
+		# are a GNU extension, and BSD head on the macOS runners answers
+		# "head: illegal line count -- -1" and exits 1, which under `set -euo pipefail`
+		# killed every macos-arm64 PHP build. The last line is the `[next.section]` header
+		# the range match includes; both spellings drop exactly that.
+		ws_section=$(sed -n '/^\[workspace\.package\]/,/^\[/p' "$WORKSPACE_ROOT/Cargo.toml" | sed '$d')
 		ws_version=$(echo "$ws_section" | grep "^version" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
 		ws_edition=$(echo "$ws_section" | grep "^edition" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
 		ws_license=$(echo "$ws_section" | grep "^license" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')

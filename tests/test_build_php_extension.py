@@ -7,6 +7,7 @@ nothing else. A progress line leaking onto stdout made the runner reject the who
 """
 
 import os
+import pathlib
 import subprocess
 from pathlib import Path
 
@@ -101,6 +102,63 @@ def test_workspace_strip_progress_goes_to_stderr(workspace: Path, stub_cargo_pat
 
     assert "Stripped workspace inheritance from binding crate Cargo.toml" in result.stderr
     assert "Stripped workspace inheritance" not in result.stdout
+
+
+@pytest.fixture
+def workspace_with_inherited_package(workspace: Path) -> Path:
+    """Same workspace, but the root declares `[workspace.package]`.
+
+    The plain `workspace` fixture has a bare `[workspace]` table, so the
+    `grep -q "^\\[workspace\\.package\\]"` guard is false and the metadata-extraction
+    branch never executes. That is precisely why a GNU-only `head -n -1` in that branch
+    passed every local test while failing every macos-arm64 CI job.
+    """
+    workspace.joinpath("Cargo.toml").write_text(
+        '[workspace]\nresolver = "2"\nmembers = ["crates/demo-ext"]\n\n'
+        '[workspace.package]\nversion = "3.11.2"\nedition = "2024"\nlicense = "MIT"\n\n'
+        '[workspace.dependencies]\nserde = "1"\n'
+    )
+    return workspace
+
+
+def test_inherited_workspace_metadata_branch_runs_on_this_platform(
+    workspace_with_inherited_package: Path, stub_cargo_path: str
+):
+    """Regression: the branch must work with BSD tools, not just GNU coreutils.
+
+    On macOS this asserted `head: illegal line count -- -1`; under `set -euo pipefail`
+    that killed the script and took down every macos-arm64 PHP build.
+    """
+    result = _run(workspace_with_inherited_package, stub_cargo_path)
+
+    assert "illegal line count" not in result.stderr, result.stderr
+    assert "Broken pipe" not in result.stderr, result.stderr
+    assert result.returncode == 0, result.stderr
+    assert len(result.stdout.splitlines()) == 1, result.stdout
+
+
+def test_inherited_workspace_metadata_is_substituted_into_the_crate_manifest(
+    workspace_with_inherited_package: Path, stub_cargo_path: str
+):
+    """The point of that branch: inherited keys become literals the isolated build can read."""
+    _run(workspace_with_inherited_package, stub_cargo_path)
+
+    manifests = list(workspace_with_inherited_package.glob("**/crate/Cargo.toml"))
+    rewritten = "\n".join(m.read_text() for m in manifests) if manifests else ""
+    assert "workspace = true" not in rewritten, f"inherited keys must be resolved to literals; got:\n{rewritten}"
+
+
+def test_no_script_uses_the_gnu_only_negative_head_count():
+    """Guard the whole repo, not just this action -- build-python-sdist had the same line."""
+    offenders = [
+        f"{script}:{lineno}"
+        for script in pathlib.Path(_SCRIPT).parents[2].rglob("*.sh")
+        if ".git" not in script.parts
+        for lineno, line in enumerate(script.read_text().splitlines(), 1)
+        # Skip comments -- the fix's own rationale names the construct it replaced.
+        if "head -n -" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, f"`head -n -N` is a GNU extension and fails on BSD/macOS: {offenders}"
 
 
 def test_missing_crate_dir_reports_on_stderr(tmp_path: Path, stub_cargo_path: str):
