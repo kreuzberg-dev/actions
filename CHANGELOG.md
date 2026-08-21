@@ -26,6 +26,19 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`publish-npm` no longer reports a package npm accepted as a failed publish.**
+  The post-publish presence check polled `registry.npmjs.org` for ~30s and exited 1 when the version
+  was not yet readable, but npm's own post-publish notice says a package "may take a few minutes to
+  become available". `@xberg-io/liter-llm` 1.17.3 published all six napi platform packages, tripped the
+  check on one of them, and exited before the main package was published — leaving `@xberg-io/liter-llm`
+  at 1.16.0 with `optionalDependencies` pinning platform versions that only existed at 1.17.3; the same
+  race stranded crawlberg 1.3.2's WASM package. The check now polls for a full 5 minutes with capped
+  exponential backoff, runs only after every package has been published rather than between publishes,
+  and is advisory: a version npm accepted is counted as published and reported with a `::warning::`
+  when the read side has not caught up, so it can no longer abort the publishes that follow it. Only
+  npm rejecting a publish still fails the step.
+  (`publish-npm/scripts/publish.py`)
+
 - **`build-php-extension` no longer leaves workspace inheritance in the manifest it builds out of tree.**
   The Windows branch stripped inheritance with `-replace '^\s*workspace = true\s*$', ''`, which only matches
   the bare form. Alef-generated manifests use the dotted form (`version.workspace = true`), so nothing was
