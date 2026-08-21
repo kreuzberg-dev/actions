@@ -26,6 +26,24 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`reusable-check-registries` no longer loses per-registry results to matrix collision.**
+  The `check` job declared a job-level `outputs: result: ...` while running under a matrix
+  strategy; a matrix job has one output namespace shared by every leg, so every registry's
+  result overwrote every other, and only whichever leg happened to finish last survived —
+  non-deterministically. Every caller gate built on `fromJson(needs.check-registries.outputs.results).<name>`
+  was reading an incomplete map, so a missing key evaluated as not-yet-published regardless of
+  the real registry state. Each leg now writes its own result to a uniquely-named artifact, and
+  a separate `aggregate` job fans them back in with `jq -s add`, a union over disjoint keys that
+  cannot depend on completion order. The per-leg verdict is written with `jq --arg`, not
+  `--argjson`: callers compare `fromJson(...).<name> != 'true'`, a string comparison, and
+  `--argjson` would have parsed the value into a JSON boolean — GitHub Actions casts a
+  boolean/string mismatch to numbers, `true` to `1` and `'true'` to `NaN`, so `true != 'true'`
+  is always true and every gate would have failed open again, just via value type instead of
+  the collapsed key. A check step that succeeds but sets no `all-exist` output now fails the
+  leg loudly instead of writing a silent empty-string verdict, which would have failed open the
+  same way.
+  (`.github/workflows/reusable-check-registries.yml`, `tests/test_reusable_check_registries.py`)
+
 - **`build-php-extension` no longer corrupts its own `extension-path` output.** The build script's
   stdout is read straight into `$GITHUB_OUTPUT`, but on any crate that inherits `workspace = true`
   it also printed `Stripped workspace inheritance from binding crate Cargo.toml` there. The output

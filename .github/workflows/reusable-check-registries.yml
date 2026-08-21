@@ -37,11 +37,6 @@ jobs:
       fail-fast: false
       matrix:
         check: ${{ fromJson(inputs.registries) }}
-    outputs:
-      # `all-exist` and not `exists`: it folds in every `extra-packages` result, which a
-      # composite action cannot surface as individual outputs. It equals `exists` when the
-      # check declares no extra packages.
-      result: ${{ steps.check.outputs.all-exist }}
     steps:
       - name: Check registry
         id: check
@@ -57,6 +52,38 @@ jobs:
           asset-prefix: ${{ matrix.check.asset-prefix || '' }}
           repo: ${{ matrix.check.repo || '' }}
 
+      - name: Write check result
+        # A matrix job has one output namespace shared by every leg: a job-level `outputs:`
+        # block on a matrixed job collapses to whichever leg finishes last, silently discarding
+        # every other leg's value. Each leg writes its own result to a uniquely-named artifact
+        # instead, so the aggregate job below can fan them back in without depending on
+        # completion order.
+        id: write-result
+        env:
+          CHECK_NAME: ${{ matrix.check.name }}
+          CHECK_RESULT: ${{ steps.check.outputs.all-exist }}
+        run: |
+          set -euo pipefail
+          # Callers compare `fromJson(...).name != 'true'` -- a string comparison -- so the
+          # verdict must stay a JSON string ("true"/"false"), never `--argjson`'s parsed
+          # boolean: GitHub Actions casts a boolean/string mismatch to numbers, and `true`
+          # casts to `1` while `'true'` casts to NaN, so `true != 'true'` is always true. An
+          # empty verdict (the check step succeeded but set no `all-exist` output) fails this
+          # step loudly instead of writing a silent "" that would also read as not-published.
+          if [[ -z "$CHECK_RESULT" ]]; then
+            echo "::error::check step for '${CHECK_NAME}' produced no all-exist output" >&2
+            exit 1
+          fi
+          mkdir -p results
+          jq -n --arg name "$CHECK_NAME" --arg result "$CHECK_RESULT" '{($name): $result}' \
+            > "results/${CHECK_NAME}.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: check-registries-result-${{ matrix.check.name }}
+          path: results/*.json
+          retention-days: 1
+
   aggregate:
     name: Aggregate registry results
     needs: check
@@ -65,10 +92,21 @@ jobs:
     outputs:
       results: ${{ steps.aggregate.outputs.results }}
     steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: check-registries-result-*
+          path: results
+          merge-multiple: true
+
       - name: Aggregate check results
         id: aggregate
-        env:
-          CHECK_OUTPUTS: ${{ toJson(needs.check.outputs) }}
         run: |
-          RESULTS=$(printf '%s' "$CHECK_OUTPUTS" | jq -c .)
+          set -euo pipefail
+          shopt -s nullglob
+          files=(results/*.json)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            RESULTS='{}'
+          else
+            RESULTS=$(jq -s -c 'add' "${files[@]}")
+          fi
           echo "results=$RESULTS" >> "$GITHUB_OUTPUT"
