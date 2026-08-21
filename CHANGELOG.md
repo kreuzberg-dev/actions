@@ -26,6 +26,19 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`build-php-extension` no longer leaves workspace inheritance in the manifest it builds out of tree.**
+  The Windows branch stripped inheritance with `-replace '^\s*workspace = true\s*$', ''`, which only matches
+  the bare form. Alef-generated manifests use the dotted form (`version.workspace = true`), so nothing was
+  stripped and cargo failed with "error inheriting `version` from workspace root manifest's
+  `workspace.package.version` ... failed to find a workspace root" — every Windows leg of a PHP release.
+  Both branches now resolve inheritance against the workspace manifest instead of deleting it: the dotted
+  form, the inline-table form (`version = { workspace = true }`) and the bare form are all recognised,
+  `[workspace.package]` and `[workspace.dependencies]` values are substituted in, `readme`/`license-file`
+  are dropped because they name files left behind at the workspace root, and a form that cannot be resolved
+  fails with a message naming the line instead of producing a manifest cargo will reject.
+  (`build-php-extension/action.yml`, `build-php-extension/scripts/deinherit-workspace.ps1`,
+  `build-php-extension/scripts/build-out-of-workspace.sh`)
+
 - **`reusable-check-registries` no longer loses per-registry results to matrix collision.**
   The `check` job declared a job-level `outputs: result: ...` while running under a matrix
   strategy; a matrix job has one output namespace shared by every leg, so every registry's
