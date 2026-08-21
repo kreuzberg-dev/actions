@@ -95,6 +95,12 @@ idempotency, since the build/auth steps are skipped too). `check-registry`
 covers `pypi`, `npm`, `wasm`, `rubygems`, `hex`, `maven`, `nuget`, `cratesio`,
 `packagist`, `homebrew`, and `github-release`.
 
+To gate on several packages at once, pass them via `extra-packages` and read the
+combined verdict from `all-exist`, or a single package's from
+`fromJSON(steps.<id>.outputs.results).<key>`. The per-line keys themselves are
+not step outputs: a composite action propagates only the outputs it declares, so
+`steps.<id>.outputs.<key>` is always the empty string.
+
 ### Release Infrastructure
 
 | Action | Description |

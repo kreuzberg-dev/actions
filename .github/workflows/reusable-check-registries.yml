@@ -14,7 +14,9 @@ on:
           - registry: registry type (pypi, npm, cratesio, nuget, rubygems, hex, maven, packagist, homebrew, github-release)
           - package: package name to check
           Optional fields:
-          - extra-packages: newline-separated key=package pairs for checking additional packages
+          - extra-packages: newline-separated key=package pairs for checking additional packages.
+            Their individual results are not separate outputs; a check with extra packages
+            reports `true` only when the package and every extra exist.
           - tap-repo: Homebrew tap repository (required for homebrew registry)
           - tag: GitHub release tag (for github-release registry, defaults to v{version})
           - assets: required release assets (for github-release)
@@ -36,7 +38,10 @@ jobs:
       matrix:
         check: ${{ fromJson(inputs.registries) }}
     outputs:
-      result: ${{ steps.check.outputs.exists }}
+      # `all-exist` and not `exists`: it folds in every `extra-packages` result, which a
+      # composite action cannot surface as individual outputs. It equals `exists` when the
+      # check declares no extra packages.
+      result: ${{ steps.check.outputs.all-exist }}
     steps:
       - name: Check registry
         id: check

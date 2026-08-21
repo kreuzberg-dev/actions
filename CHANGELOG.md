@@ -94,6 +94,21 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`check-registry` extra-package results now reach the caller.** The action accepted
+  `extra-packages` and wrote one `$GITHUB_OUTPUT` key per line, but a composite action
+  propagates only the outputs its `outputs:` block declares — and it declared just `exists`.
+  Every extra key arrived at the caller as an empty string, so every guard built on one was
+  dead: crawlberg's v1.2.1 publish run shows the consuming step evaluating
+  `if [[ "false" == "true" && "" == "true" && "" == "true" && "" == "true" ]]`. The extras are
+  now folded into two declared outputs — `all-exist` (primary and every extra exist) and
+  `results` (a JSON object keyed by `exists` plus every extra key) — and the undeclared bare
+  keys are gone. `reusable-check-registries` reports `all-exist` per check instead of `exists`,
+  so a check with extra packages no longer reports "published" on the strength of the primary
+  package alone. Callers reading `steps.<id>.outputs.<key>` for an extra package must move to
+  `all-exist` or `fromJSON(...outputs.results).<key>`.
+  (`check-registry/action.yml`, `.github/workflows/reusable-check-registries.yml`,
+  `tests/test_check_registry.py`)
+
 - **`fetch-test-documents` works on Windows runners.** The action invoked its scripts via
   `${{ github.action_path }}` inlined into a bash `run:` body; on Windows that expands to
   `D:\a\_actions\...`, whose `\a` and `\_` bash reads as escape sequences, collapsing the path and
