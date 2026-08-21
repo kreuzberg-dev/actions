@@ -39,6 +39,14 @@ All notable changes to xberg-io/actions are documented in this file.
   (`build-php-extension/action.yml`, `build-php-extension/scripts/deinherit-workspace.ps1`,
   `build-php-extension/scripts/build-out-of-workspace.sh`)
 
+- **`build-php-extension` reports a Windows build failure as a build failure.**
+  `$ErrorActionPreference = "Stop"` does not abort PowerShell on a native command's non-zero exit, so
+  `cargo update` and `cargo build --release` could both fail and the step carried on until `Copy-Item`
+  reported the missing `.dll` — a missing-artifact message for what was a manifest-parse error. Every
+  native command in the Windows steps now checks `$LASTEXITCODE`, and a build that produces no library
+  fails with a message naming the expected path.
+  (`build-php-extension/action.yml`)
+
 - **`reusable-check-registries` no longer loses per-registry results to matrix collision.**
   The `check` job declared a job-level `outputs: result: ...` while running under a matrix
   strategy; a matrix job has one output namespace shared by every leg, so every registry's
