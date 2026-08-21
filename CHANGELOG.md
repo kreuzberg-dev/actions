@@ -26,6 +26,16 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`reusable-validate` installs Node/pnpm and wasm-pack before the strict snippet check.**
+  The job set up Rust, Python, Java, Go, Ruby, Dart, Elixir and clang-format but no JavaScript
+  toolchain, so `alef snippets check` aborted while preparing a wasm snippet session with
+  `before command failed: sh: 1: pnpm: not found` — the session builds the wasm-bindgen package
+  through `pnpm run build:all`/`wasm-pack` because the generated `pkg/` is gitignored. Both
+  toolchains are now installed via `setup-node-workspace@v1` and `setup-wasm-pack@v1`, gated on
+  `check-fixture-snippets` so lint-only callers are unaffected, and ordered after the drift check
+  so a `pnpm install` that refreshes `pnpm-lock.yaml` cannot be misreported as generated-file drift.
+  (`.github/workflows/reusable-validate.yml`)
+
 - **`publish-npm` no longer reports a package npm accepted as a failed publish.**
   The post-publish presence check polled `registry.npmjs.org` for ~30s and exited 1 when the version
   was not yet readable, but npm's own post-publish notice says a package "may take a few minutes to

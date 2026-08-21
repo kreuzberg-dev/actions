@@ -358,6 +358,25 @@ jobs:
         if: ${{ inputs.check-fixture-snippets }}
         run: git diff --exit-code
 
+      # ~keep A wasm snippet session prepares itself by building the wasm-bindgen package
+      # (`pnpm run build:all`, which shells out to wasm-pack) because the generated `pkg/`
+      # is gitignored and never checked in. Without Node and wasm-pack the strict snippet
+      # check below aborts with "preparing typescript snippet validation session: before
+      # command failed: sh: 1: pnpm: not found" (html-to-markdown run 32517810434). Both
+      # are gated on `check-fixture-snippets` so callers that only lint never pay for them.
+      # ~keep Ordered after the drift check rather than beside the other toolchain setups:
+      # `pnpm install` rewrites `pnpm-lock.yaml` whenever it is out of sync with the
+      # manifests, and `git diff --exit-code` above would then report that as generated-file
+      # drift. Nothing before this point needs Node — the generate and drift steps pass
+      # without it today.
+      - name: Set up Node.js and pnpm
+        if: ${{ inputs.check-fixture-snippets && hashFiles('package.json') != '' }}
+        uses: xberg-io/actions/setup-node-workspace@v1
+
+      - name: Set up wasm-pack
+        if: ${{ inputs.check-fixture-snippets }}
+        uses: xberg-io/actions/setup-wasm-pack@v1
+
       - name: Validate fixture snippets
         if: ${{ inputs.check-fixture-snippets }}
         run: alef snippets check --strict --cache off
