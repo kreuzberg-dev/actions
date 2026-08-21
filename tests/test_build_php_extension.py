@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _ROOT / "build-php-extension" / "scripts" / "build-out-of-workspace.sh"
@@ -23,8 +24,14 @@ _LIB_NAME = "demo_ext"
 _STUB_CARGO = """#!/bin/bash
 # A stub cargo that is noisy on both streams and materialises the artifact the
 # script copies out, so the test exercises stdout discipline without a real build.
+# It also copies the rewritten manifest out of the build dir: the script builds under
+# `mktemp -d` and deletes it on EXIT, so a test that looks for the manifest under the
+# workspace afterwards finds nothing and asserts against an empty string.
 echo "stub cargo stdout noise: $*"
 echo "stub cargo stderr noise: $*" >&2
+if [ -n "${{MANIFEST_CAPTURE:-}}" ]; then
+	cp Cargo.toml "$MANIFEST_CAPTURE"
+fi
 mkdir -p target/release
 touch "target/release/lib{lib}.so" "target/release/lib{lib}.dylib"
 """
@@ -75,14 +82,26 @@ def stub_cargo_path(tmp_path: Path) -> str:
     return f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
 
 
-def _run(workspace: Path, path_env: str) -> subprocess.CompletedProcess[str]:
+def _run(workspace: Path, path_env: str, capture: Path | None = None) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": path_env}
+    if capture is not None:
+        env["MANIFEST_CAPTURE"] = str(capture)
     return subprocess.run(
         ["bash", str(_SCRIPT), _CRATE_NAME, _LIB_NAME, str(workspace)],
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "PATH": path_env},
+        env=env,
     )
+
+
+def _rewritten_manifest(workspace: Path, path_env: str) -> str:
+    """The crate manifest as the isolated build actually saw it."""
+    capture = workspace / "captured-Cargo.toml"
+    result = _run(workspace, path_env, capture)
+    assert result.returncode == 0, result.stderr
+    assert capture.exists(), f"stub cargo never ran, so no manifest was captured:\n{result.stderr}"
+    return capture.read_text()
 
 
 def test_stdout_is_only_the_extension_path(workspace: Path, stub_cargo_path: str):
@@ -141,11 +160,140 @@ def test_inherited_workspace_metadata_is_substituted_into_the_crate_manifest(
     workspace_with_inherited_package: Path, stub_cargo_path: str
 ):
     """The point of that branch: inherited keys become literals the isolated build can read."""
-    _run(workspace_with_inherited_package, stub_cargo_path)
+    rewritten = _rewritten_manifest(workspace_with_inherited_package, stub_cargo_path)
 
-    manifests = list(workspace_with_inherited_package.glob("**/crate/Cargo.toml"))
-    rewritten = "\n".join(m.read_text() for m in manifests) if manifests else ""
     assert "workspace = true" not in rewritten, f"inherited keys must be resolved to literals; got:\n{rewritten}"
+
+
+# ~keep A manifest copied out of its workspace cannot inherit: cargo answers "error
+# inheriting `version` from workspace root manifest's `workspace.package.version` ...
+# failed to find a workspace root". Deleting the lines is not enough either -- `version`,
+# `edition` and `license` are required for the package to parse -- so every spelling has
+# to resolve to the workspace's literal value.
+_INHERITING_CRATE_MANIFEST = """# A comment mentioning workspace = true must survive verbatim.
+[package]
+name = "demo-ext"
+version.workspace = true
+edition = { workspace = true }
+license.workspace = true
+readme.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "demo_ext"
+crate-type = ["cdylib"]
+
+[dependencies]
+sibling = { version = "1", path = "../sibling" }
+serde.workspace = true
+
+[lints]
+workspace = true
+"""
+
+_INHERITING_ROOT_MANIFEST = """[workspace]
+resolver = "2"
+members = ["crates/demo-ext"]
+
+[workspace.package]
+version = "3.11.3"
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+keywords = ["demo", "fixture"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[workspace.lints.rust]
+unused_imports = "warn"
+"""
+
+
+@pytest.fixture
+def workspace_with_every_inheritance_spelling(workspace: Path) -> Path:
+    """A crate inheriting via the dotted, inline-table and bare forms at once."""
+    workspace.joinpath("Cargo.toml").write_text(_INHERITING_ROOT_MANIFEST)
+    workspace.joinpath("crates", _CRATE_NAME, "Cargo.toml").write_text(_INHERITING_CRATE_MANIFEST)
+    return workspace
+
+
+def test_dotted_and_inline_inheritance_resolve_to_the_workspace_values(
+    workspace_with_every_inheritance_spelling: Path, stub_cargo_path: str
+):
+    """Regression: the dotted form is what cargo and alef emit, and it was never stripped.
+
+    `-replace '^\\s*workspace = true\\s*$', ''` on the Windows branch matched only the bare
+    form, so `version.workspace = true` survived into the isolated build and every Windows
+    PHP leg died on "failed to find a workspace root".
+    """
+    rewritten = _rewritten_manifest(workspace_with_every_inheritance_spelling, stub_cargo_path)
+    package = tomlkit.parse(rewritten)["package"]
+
+    assert package["version"] == "3.11.3"
+    assert package["edition"] == "2024"
+    assert package["license"] == "MIT"
+    assert package["keywords"] == ["demo", "fixture"]
+
+
+def test_inherited_dependencies_resolve_from_workspace_dependencies(
+    workspace_with_every_inheritance_spelling: Path, stub_cargo_path: str
+):
+    """`serde.workspace = true` inherits from [workspace.dependencies], not [workspace.package]."""
+    rewritten = _rewritten_manifest(workspace_with_every_inheritance_spelling, stub_cargo_path)
+    serde = tomlkit.parse(rewritten)["dependencies"]["serde"]
+
+    assert serde["version"] == "1"
+    assert serde["features"] == ["derive"]
+
+
+def test_path_valued_inherited_keys_are_dropped_rather_than_resolved(
+    workspace_with_every_inheritance_spelling: Path, stub_cargo_path: str
+):
+    """`readme` names a file left behind at the workspace root, so resolving it dangles."""
+    rewritten = _rewritten_manifest(workspace_with_every_inheritance_spelling, stub_cargo_path)
+    package = tomlkit.parse(rewritten)["package"]
+
+    assert "readme" not in package
+    # `homepage` is inherited but absent from [workspace.package]: nothing to resolve to.
+    assert "homepage" not in package
+
+
+def test_bare_inheritance_leaves_a_table_cargo_can_still_parse(
+    workspace_with_every_inheritance_spelling: Path, stub_cargo_path: str
+):
+    """`[lints]` + bare `workspace = true` has no key to resolve, so the line goes."""
+    rewritten = _rewritten_manifest(workspace_with_every_inheritance_spelling, stub_cargo_path)
+    document = tomlkit.parse(rewritten)
+
+    assert "lints" in document
+    assert dict(document["lints"]) == {}
+
+
+def test_a_comment_mentioning_inheritance_is_not_treated_as_inheritance(
+    workspace_with_every_inheritance_spelling: Path, stub_cargo_path: str
+):
+    """Alef-generated manifests carry prose naming `workspace = true`; it is not a key."""
+    rewritten = _rewritten_manifest(workspace_with_every_inheritance_spelling, stub_cargo_path)
+
+    assert "# A comment mentioning workspace = true must survive verbatim." in rewritten
+    tomlkit.parse(rewritten)
+
+
+def test_an_unresolvable_inheritance_form_fails_loudly(workspace: Path, stub_cargo_path: str):
+    """A merged inline table cannot be resolved; say so instead of emitting broken TOML."""
+    workspace.joinpath("Cargo.toml").write_text(_INHERITING_ROOT_MANIFEST)
+    workspace.joinpath("crates", _CRATE_NAME, "Cargo.toml").write_text(
+        '[package]\nname = "demo-ext"\nversion.workspace = true\n\n'
+        '[dependencies]\nserde = { workspace = true, features = ["derive"] }\n'
+    )
+
+    result = _run(workspace, stub_cargo_path)
+
+    assert result.returncode != 0
+    assert "unsupported workspace inheritance form" in result.stderr
+    assert 'serde = { workspace = true, features = ["derive"] }' in result.stderr
 
 
 def test_no_script_uses_the_gnu_only_negative_head_count():

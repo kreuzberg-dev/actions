@@ -144,7 +144,7 @@ deinherit_workspace Cargo.toml "$WORKSPACE_ROOT/Cargo.toml"
 # ~keep Progress goes to stderr: this script's stdout is captured verbatim into
 # `extension-path`, and a second line there makes the runner reject the whole
 # `$GITHUB_OUTPUT` write ("Unable to process file command 'output' successfully").
-echo "Resolved workspace inheritance in binding crate Cargo.toml" >&2
+echo "Stripped workspace inheritance from binding crate Cargo.toml" >&2
 
 strip_internal_paths Cargo.toml
 
