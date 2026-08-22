@@ -116,6 +116,26 @@ on:
         required: false
         type: string
         default: "packages/elixir"
+      setup-zig:
+        description: "Install the Zig toolchain so poly's zig fmt/lint checks and alef's zig snippet validation can run."
+        required: false
+        type: boolean
+        default: false
+      zig-version:
+        description: "Zig version for setup-zig."
+        required: false
+        type: string
+        default: "latest"
+      setup-r:
+        description: "Install R so poly's R checks and alef's R snippet validation can run."
+        required: false
+        type: boolean
+        default: false
+      r-version:
+        description: "R version for setup-r."
+        required: false
+        type: string
+        default: "4.4"
       runner:
         description: "Runner label(s) to run on. Use a GitHub-hosted label such as ubuntu-latest or ubuntu-24.04-arm; the org self-hosted pools were retired."
         required: false
@@ -295,6 +315,18 @@ jobs:
         if: ${{ inputs.setup-elixir }}
         working-directory: ${{ inputs.elixir-working-directory }}
         run: mix deps.get
+
+      - name: Set up Zig
+        if: ${{ inputs.setup-zig }}
+        uses: xberg-io/actions/setup-zig@v1
+        with:
+          version: ${{ inputs.zig-version }}
+
+      - name: Set up R
+        if: ${{ inputs.setup-r }}
+        uses: xberg-io/actions/setup-r@v1
+        with:
+          r-version: ${{ inputs.r-version }}
 
       # ~keep poly delegates C, C++, and C# formatting to clang-format, so its version decides
       # whether `poly fmt --check` passes. Without this the job silently used the runner image's
