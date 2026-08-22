@@ -27,5 +27,31 @@ def test_fixture_snippet_gate_installs_generates_checks_drift_and_validates():
 
     positions = [content.index(fragment) for fragment in expected_in_order]
     assert positions == sorted(positions)
-    assert content.count("if: ${{ inputs.check-fixture-snippets }}") == len(expected_in_order)
     assert "version: ${{ inputs.alef-version }}" in content
+
+
+def test_every_snippet_gated_step_is_accounted_for():
+    """Pin the exact set of steps gated on `check-fixture-snippets`, by name.
+
+    A bare count broke the moment the pnpm/wasm-pack setup steps were added, and a count
+    cannot tell "someone added a gated step" from "someone dropped a gate". Naming them
+    fails loudly in both directions: an ungated addition never appears here, and a step
+    that silently loses its gate disappears from this set. ~keep
+    """
+    gated = []
+    current_name = None
+    for line in _workflow_content().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- name:"):
+            current_name = stripped.removeprefix("- name:").strip()
+        elif "inputs.check-fixture-snippets" in stripped and stripped.startswith("if:"):
+            gated.append(current_name)
+
+    assert gated == [
+        "Install alef CLI",
+        "Generate fixture snippets",
+        "Check fixture snippet drift",
+        "Set up Node.js and pnpm",
+        "Set up wasm-pack",
+        "Validate fixture snippets",
+    ]
