@@ -26,6 +26,17 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`publish-github-release` no longer reports success when its artifact glob matches zero files.**
+  `upload_artifacts.py` printed "No artifact files matched, skipping upload" and exited 0 whenever
+  `expand_artifact_patterns` returned nothing, so a build that produced no output silently skipped
+  the upload and left a release with zero assets reported as a successful publish. An audit of all
+  15 call sites across `alef`, `tree-sitter-language-pack`, `liter-llm`, `html-to-markdown`,
+  `crawlberg` and this repo found none that can legitimately pass an `artifacts` glob matching
+  nothing, so the empty case now exits 1 and names the unmatched pattern. The new `fail-if-empty`
+  input (default `"true"`, mirroring `upload-release-assets`) restores the warn-and-continue
+  behaviour per call for genuinely optional uploads.
+  (`publish-github-release/action.yml`, `publish-github-release/scripts/upload_artifacts.py`)
+
 - **`reusable-validate` installs Node/pnpm and wasm-pack before the strict snippet check.**
   The job set up Rust, Python, Java, Go, Ruby, Dart, Elixir and clang-format but no JavaScript
   toolchain, so `alef snippets check` aborted while preparing a wasm snippet session with

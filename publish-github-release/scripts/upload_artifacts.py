@@ -3,6 +3,9 @@
 
 Usage (GitHub Actions via env vars):
     INPUT_TAG=v1.2.3 INPUT_ARTIFACTS="dist/*.whl,dist/*.tar.gz" python3 upload_artifacts.py
+
+    INPUT_FAIL_IF_EMPTY: "false" to warn instead of failing when the patterns match nothing
+    (default true).
 """
 
 import json
@@ -19,6 +22,14 @@ from typing import Any
 
 UPLOAD_MAX_ATTEMPTS = 5
 UPLOAD_BACKOFF_BASE_SECONDS = 2.0
+
+
+def env_bool(key: str, default: bool = False) -> bool:
+    """Read a GitHub Actions boolean-ish input, falling back to `default` when unset."""
+    raw = os.environ.get(key, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"true", "1", "yes", "y", "on"}
 
 
 def get_github_api_headers(token: str) -> dict[str, str]:
@@ -178,8 +189,16 @@ def main() -> None:
     files = expand_artifact_patterns(artifacts_str)
 
     if not files:
-        print("No artifact files matched, skipping upload")
-        sys.exit(0)
+        message = f"no files matched artifact pattern(s) {artifacts_str!r}"
+        if env_bool("INPUT_FAIL_IF_EMPTY", default=True):
+            print(
+                f"Error: {message}; refusing an upload that would report success with zero "
+                "release assets. Set fail-if-empty: 'false' if an empty match is expected.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"::warning::{message}; skipping upload")
+        return
 
     print(f"Uploading {len(files)} artifact(s) to release {tag}...")
 
