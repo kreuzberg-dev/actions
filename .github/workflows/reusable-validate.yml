@@ -136,6 +136,26 @@ on:
         required: false
         type: string
         default: "4.4"
+      setup-swift:
+        description: "Install the Swift toolchain so poly's swift-format checks and alef's swift snippet validation can run."
+        required: false
+        type: boolean
+        default: false
+      swift-version:
+        description: "Swift version for setup-swift."
+        required: false
+        type: string
+        default: "6.0"
+      setup-php:
+        description: "Install PHP so poly's PHP checks and alef's php snippet validation can run."
+        required: false
+        type: boolean
+        default: false
+      php-version:
+        description: "PHP version for setup-php."
+        required: false
+        type: string
+        default: "8.4"
       runner:
         description: "Runner label(s) to run on. Use a GitHub-hosted label such as ubuntu-latest or ubuntu-24.04-arm; the org self-hosted pools were retired."
         required: false
@@ -327,6 +347,18 @@ jobs:
         uses: xberg-io/actions/setup-r@v1
         with:
           r-version: ${{ inputs.r-version }}
+
+      - name: Set up Swift
+        if: ${{ inputs.setup-swift }}
+        uses: xberg-io/actions/setup-swift@v1
+        with:
+          swift-version: ${{ inputs.swift-version }}
+
+      - name: Set up PHP
+        if: ${{ inputs.setup-php }}
+        uses: xberg-io/actions/setup-php@v1
+        with:
+          php-version: ${{ inputs.php-version }}
 
       # ~keep poly delegates C, C++, and C# formatting to clang-format, so its version decides
       # whether `poly fmt --check` passes. Without this the job silently used the runner image's
