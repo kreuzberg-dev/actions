@@ -40,58 +40,111 @@ open(p, 'w').write(''.join(out))
 PY
 }
 
+# ~keep The crate is built from a copy placed outside the workspace, so every
+# `workspace = true` in its manifest points at a root cargo can no longer find
+# ("failed to find a workspace root"). Inherited keys are replaced with the workspace's
+# concrete values rather than deleted, because `version`, `edition` and `license` are
+# required for the package to parse at all. Three spellings are recognised: the dotted
+# form (`version.workspace = true`, what cargo and alef emit), the inline-table form
+# (`version = { workspace = true }`), and the bare form under a table such as `[lints]`,
+# which has no key to resolve and is dropped.
+deinherit_workspace() {
+	python3 - "$1" "$2" <<'PY'
+import os, re, sys
+
+crate_manifest, workspace_manifest = sys.argv[1], sys.argv[2]
+
+# `readme` and `license-file` name files that live beside the workspace manifest and are
+# not copied into the out-of-workspace build dir, so inheriting them would point cargo at
+# paths that do not exist. They are publish-only metadata; drop them instead.
+PATH_VALUED_PACKAGE_KEYS = {'readme', 'license-file'}
+
+HEADER = re.compile(r'\s*\[([^\]]+)\]\s*$')
+COMMENT = re.compile(r'\s*#')
+ASSIGNMENT = re.compile(r'\s*([A-Za-z0-9_.-]+)\s*=\s*(\S.*?)\s*$')
+DOTTED_INHERIT = re.compile(r'\s*([A-Za-z0-9_-]+)\s*\.\s*workspace\s*=\s*true\s*$')
+INLINE_INHERIT = re.compile(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{\s*workspace\s*=\s*true\s*,?\s*\}\s*$')
+BARE_INHERIT = re.compile(r'\s*workspace\s*=\s*true\s*$')
+ANY_INHERIT = re.compile(r'workspace\s*=\s*true')
+DEPENDENCY_TABLE = re.compile(r'(^|\.)(build-|dev-)?dependencies$')
+
+
+def read_table(path, name):
+    values = {}
+    if not os.path.exists(path):
+        return values
+    in_table = False
+    with open(path, encoding='utf-8') as handle:
+        for raw in handle:
+            line = raw.rstrip('\n')
+            header = HEADER.match(line)
+            if header:
+                in_table = header.group(1).strip() == name
+                continue
+            if not in_table or COMMENT.match(line):
+                continue
+            assignment = ASSIGNMENT.match(line)
+            if assignment:
+                values[assignment.group(1)] = assignment.group(2)
+    return values
+
+
+package_values = read_table(workspace_manifest, 'workspace.package')
+dependency_values = read_table(workspace_manifest, 'workspace.dependencies')
+
+section = ''
+out = []
+with open(crate_manifest, encoding='utf-8') as handle:
+    for raw in handle:
+        line = raw.rstrip('\n')
+        header = HEADER.match(line)
+        if header:
+            section = header.group(1).strip()
+            out.append(line)
+            continue
+        # Comments are copied verbatim and never inspected: alef-generated manifests carry
+        # prose that mentions `workspace = true`, and reading that as inheritance would
+        # fail the build on a comment.
+        if COMMENT.match(line):
+            out.append(line)
+            continue
+
+        dotted = DOTTED_INHERIT.match(line)
+        inline = INLINE_INHERIT.match(line)
+        key = dotted.group(1) if dotted else (inline.group(1) if inline else None)
+        if key is None:
+            if BARE_INHERIT.match(line):
+                continue
+            if ANY_INHERIT.search(line):
+                sys.exit("error: cannot de-inherit '%s' in %s: unsupported workspace "
+                         "inheritance form" % (line.strip(), crate_manifest))
+            out.append(line)
+            continue
+
+        if DEPENDENCY_TABLE.search(section):
+            if key not in dependency_values:
+                sys.exit("error: dependency '%s' inherits from the workspace but "
+                         "[workspace.dependencies] in %s has no entry for it"
+                         % (key, workspace_manifest))
+            out.append('%s = %s' % (key, dependency_values[key]))
+        elif key in PATH_VALUED_PACKAGE_KEYS:
+            continue
+        elif key in package_values:
+            out.append('%s = %s' % (key, package_values[key]))
+
+with open(crate_manifest, 'w', encoding='utf-8') as handle:
+    handle.write('\n'.join(out) + '\n')
+PY
+}
+
 cp -r "$CRATE_DIR" "$BUILD_TEMP/crate"
 cd "$BUILD_TEMP/crate"
 
-if grep -q 'workspace = true' Cargo.toml 2>/dev/null; then
-	ws_version=""
-	ws_edition=""
-	ws_license=""
-
-	if grep -q "^\[workspace\.package\]" "$WORKSPACE_ROOT/Cargo.toml"; then
-		# ~keep `sed '$d'` (drop the last line) rather than `head -n -1`: negative counts
-		# are a GNU extension, and BSD head on the macOS runners answers
-		# "head: illegal line count -- -1" and exits 1, which under `set -euo pipefail`
-		# killed every macos-arm64 PHP build. The last line is the `[next.section]` header
-		# the range match includes; both spellings drop exactly that.
-		ws_section=$(sed -n '/^\[workspace\.package\]/,/^\[/p' "$WORKSPACE_ROOT/Cargo.toml" | sed '$d')
-		ws_version=$(echo "$ws_section" | grep "^version" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-		ws_edition=$(echo "$ws_section" | grep "^edition" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-		ws_license=$(echo "$ws_section" | grep "^license" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
-	fi
-
-	# ~keep The dotted form (`version.workspace = true`) is what cargo emits and what
-	# alef generates; it is NOT matched by the `^version = ` deletes below, so without
-	# this rule `s/workspace = true//` truncated it to a bare `version.` and every
-	# rewritten manifest became invalid TOML ("Invalid initial character for a key
-	# part"). Delete the whole line instead: the three keys we can recover are re-added
-	# from [workspace.package] just below, and the rest (readme/keywords/categories) are
-	# publish-only metadata this build does not need. The trailing bare substitution
-	# stays for `[lints]`-style `workspace = true`, which has no key to delete.
-	sed -i.bak \
-		-e '/^[A-Za-z0-9_-]*\.workspace[[:space:]]*=[[:space:]]*true/d' \
-		-e '/^edition = /d' \
-		-e '/^version = /d' \
-		-e '/^license = /d' \
-		-e 's/workspace = true//' \
-		Cargo.toml
-
-	if [ -n "$ws_version" ] && ! grep -q "^version =" Cargo.toml; then
-		sed -i.bak "s/^\[package\]/[package]\nversion = \"$ws_version\"/" Cargo.toml
-	fi
-	if [ -n "$ws_edition" ] && ! grep -q "^edition =" Cargo.toml; then
-		sed -i.bak "s/^\[package\]/[package]\nedition = \"$ws_edition\"/" Cargo.toml
-	fi
-	if [ -n "$ws_license" ] && ! grep -q "^license =" Cargo.toml; then
-		sed -i.bak "s/^\[package\]/[package]\nlicense = \"$ws_license\"/" Cargo.toml
-	fi
-
-	rm -f Cargo.toml.bak
-	# ~keep Progress goes to stderr: this script's stdout is captured verbatim into
-	# `extension-path`, and a second line there makes the runner reject the whole
-	# `$GITHUB_OUTPUT` write ("Unable to process file command 'output' successfully").
-	echo "Stripped workspace inheritance from binding crate Cargo.toml" >&2
-fi
+deinherit_workspace Cargo.toml "$WORKSPACE_ROOT/Cargo.toml"
+# ~keep Progress goes to stderr: this script's stdout is captured verbatim into
+# `extension-path`, and a second line there makes the runner reject the whole
+# `$GITHUB_OUTPUT` write ("Unable to process file command 'output' successfully").
+echo "Stripped workspace inheritance from binding crate Cargo.toml" >&2
 
 strip_internal_paths Cargo.toml
 

@@ -23,15 +23,43 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Stage a tiny ext-php-rs crate
+      - name: Stage a tiny ext-php-rs crate that inherits from a workspace root
         shell: bash
         run: |
-          mkdir -p packages/fixture-phpext/src
-          cat >packages/fixture-phpext/Cargo.toml <<'TOML'
-          [package]
-          name = "fixture-phpext"
+          cat >Cargo.toml <<'TOML'
+          [workspace]
+          resolver = "2"
+          members = ["packages/fixture-phpext"]
+
+          [workspace.package]
           version = "0.0.1"
           edition = "2021"
+          license = "MIT"
+          readme = "README.md"
+          keywords = ["fixture"]
+          categories = ["development-tools"]
+
+          [workspace.dependencies]
+          ext-php-rs = "0.13"
+
+          [workspace.lints.rust]
+          unused_imports = "warn"
+          TOML
+          mkdir -p packages/fixture-phpext/src
+          # ~keep Every inheritance spelling alef emits is exercised here: dotted,
+          # inline-table, bare `[lints]`, and an inherited dependency. A manifest that
+          # keeps any of them once copied out of the workspace fails to parse with
+          # "failed to find a workspace root".
+          cat >packages/fixture-phpext/Cargo.toml <<'TOML'
+          # This comment mentions workspace = true and must survive verbatim.
+          [package]
+          name = "fixture-phpext"
+          version.workspace = true
+          edition = { workspace = true }
+          license.workspace = true
+          readme.workspace = true
+          keywords.workspace = true
+          categories.workspace = true
           publish = false
 
           [lib]
@@ -39,7 +67,10 @@ jobs:
           crate-type = ["cdylib"]
 
           [dependencies]
-          ext-php-rs = "0.13"
+          ext-php-rs.workspace = true
+
+          [lints]
+          workspace = true
           TOML
           cat >packages/fixture-phpext/src/lib.rs <<'RS'
           use ext_php_rs::prelude::*;
@@ -65,3 +96,112 @@ jobs:
           [ -n "${{ steps.build.outputs.extension-path }}" ]
           test -f "${{ steps.build.outputs.extension-path }}"
           file "${{ steps.build.outputs.extension-path }}"
+
+  test-deinherit-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve every inheritance spelling
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $fixture = Join-Path $env:RUNNER_TEMP "deinherit"
+          New-Item -ItemType Directory -Force -Path $fixture > $null
+
+          $workspaceManifest = Join-Path $fixture "workspace-Cargo.toml"
+          Set-Content -LiteralPath $workspaceManifest -Value @'
+          [workspace]
+          members = ["crate"]
+
+          [workspace.package]
+          version = "1.2.3"
+          edition = "2021"
+          license = "MIT"
+          readme = "README.md"
+          keywords = ["alpha", "beta"]
+
+          [workspace.dependencies]
+          serde = { version = "1", features = ["derive"] }
+
+          [workspace.lints.rust]
+          unused_imports = "warn"
+          '@
+
+          $crateManifest = Join-Path $fixture "Cargo.toml"
+          Set-Content -LiteralPath $crateManifest -Value @'
+          # This comment mentions workspace = true and must survive verbatim.
+          [package]
+          name = "fixture"
+          version.workspace = true
+          edition = { workspace = true }
+          license.workspace = true
+          readme.workspace = true
+          keywords.workspace = true
+          homepage.workspace = true
+
+          [dependencies]
+          serde.workspace = true
+
+          [lints]
+          workspace = true
+          '@
+
+          & "$env:GITHUB_WORKSPACE/build-php-extension/scripts/deinherit-workspace.ps1" $crateManifest $workspaceManifest
+
+          # `readme` is dropped because it names a file left behind at the workspace root;
+          # `homepage` is dropped because [workspace.package] does not define it.
+          $expected = @(
+            '# This comment mentions workspace = true and must survive verbatim.',
+            '[package]',
+            'name = "fixture"',
+            'version = "1.2.3"',
+            'edition = "2021"',
+            'license = "MIT"',
+            'keywords = ["alpha", "beta"]',
+            '',
+            '[dependencies]',
+            'serde = { version = "1", features = ["derive"] }',
+            '',
+            '[lints]'
+          )
+          $actual = @(Get-Content -LiteralPath $crateManifest)
+
+          if (($actual -join "`n") -ne ($expected -join "`n")) {
+            Write-Host "--- expected ---"
+            $expected | ForEach-Object { Write-Host $_ }
+            Write-Host "--- actual ---"
+            $actual | ForEach-Object { Write-Host $_ }
+            throw "de-inherited manifest does not match the expected output"
+          }
+
+      - name: Reject an inheritance form it cannot resolve
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $fixture = Join-Path $env:RUNNER_TEMP "deinherit-unsupported"
+          New-Item -ItemType Directory -Force -Path $fixture > $null
+
+          $workspaceManifest = Join-Path $fixture "workspace-Cargo.toml"
+          Set-Content -LiteralPath $workspaceManifest -Value @'
+          [workspace.dependencies]
+          serde = { version = "1" }
+          '@
+
+          $crateManifest = Join-Path $fixture "Cargo.toml"
+          Set-Content -LiteralPath $crateManifest -Value @'
+          [dependencies]
+          serde = { workspace = true, features = ["derive"] }
+          '@
+
+          $failed = $false
+          try {
+            & "$env:GITHUB_WORKSPACE/build-php-extension/scripts/deinherit-workspace.ps1" $crateManifest $workspaceManifest
+          } catch {
+            $failed = $true
+            Write-Host "rejected as expected: $($_.Exception.Message)"
+          }
+          if (-not $failed) {
+            throw "expected the script to reject a merged inline-table inheritance it cannot resolve"
+          }

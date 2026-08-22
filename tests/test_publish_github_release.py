@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _ENSURE_RELEASE_PATH = Path(__file__).resolve().parents[1] / "publish-github-release" / "scripts" / "ensure_release.py"
 _UPLOAD_ARTIFACTS_PATH = (
     Path(__file__).resolve().parents[1] / "publish-github-release" / "scripts" / "upload_artifacts.py"
@@ -187,3 +189,55 @@ def test_expand_artifact_patterns_mixed(tmp_path, monkeypatch):
 
     assert len(result) == 1
     assert result[0].name == "found.whl"
+
+
+def _upload_env(monkeypatch, tmp_path):
+    """Put main() in an empty cwd with every required input satisfied but no matching files."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("INPUT_TAG", "v1.2.3")
+    monkeypatch.setenv("INPUT_ARTIFACTS", "dist/*.whl")
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.delenv("INPUT_FAIL_IF_EMPTY", raising=False)
+
+    def _must_not_run(*_args, **_kwargs):
+        raise AssertionError("the release lookup must not run when no artifacts matched")
+
+    monkeypatch.setattr(upload_mod, "get_release_by_tag", _must_not_run)
+
+
+def test_main_exits_nonzero_when_no_artifacts_match(tmp_path, monkeypatch, capsys):
+    _upload_env(monkeypatch, tmp_path)
+
+    with pytest.raises(SystemExit) as exc_info:
+        upload_mod.main()
+
+    assert exc_info.value.code == 1, "a zero-match artifact glob must not report success"
+    assert "dist/*.whl" in capsys.readouterr().err
+
+
+def test_main_warns_instead_of_failing_when_fail_if_empty_is_false(tmp_path, monkeypatch, capsys):
+    _upload_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("INPUT_FAIL_IF_EMPTY", "false")
+
+    upload_mod.main()
+
+    assert "::warning::" in capsys.readouterr().out
+
+
+def test_main_uploads_when_artifacts_match(tmp_path, monkeypatch):
+    _upload_env(monkeypatch, tmp_path)
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "pkg-1.0.0.whl").write_text("fake")
+
+    monkeypatch.setattr(
+        upload_mod,
+        "get_release_by_tag",
+        lambda *_a, **_k: {"upload_url": "https://uploads.example.com/assets{?name,label}", "assets": []},
+    )
+    uploaded = []
+    monkeypatch.setattr(upload_mod, "upload_asset", lambda _url, name, *_a, **_k: uploaded.append(name))
+
+    upload_mod.main()
+
+    assert uploaded == ["pkg-1.0.0.whl"]

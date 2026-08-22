@@ -15,6 +15,13 @@ inputs:
     description: "Glob pattern or newline-separated list of files to upload"
     required: false
     default: ""
+  fail-if-empty:
+    description: >
+      Exit 1 when `artifacts` is non-empty but matches no files. When false,
+      log a warning and exit 0. Matches `upload-release-assets`' input of the
+      same name.
+    required: false
+    default: "true"
   generate-notes:
     description: >
       Auto-generate release notes from commits since the previous tag. Mutually
@@ -79,5 +86,6 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         INPUT_TAG: ${{ inputs.tag }}
         INPUT_ARTIFACTS: ${{ inputs.artifacts }}
+        INPUT_FAIL_IF_EMPTY: ${{ inputs.fail-if-empty }}
       run: |
         python3 "${{ github.action_path }}/scripts/upload_artifacts.py"

@@ -88,7 +88,14 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
+        $ErrorActionPreference = "Stop"
         choco install llvm --version=18.1.8 --allow-downgrade -y
+        # ~keep `$ErrorActionPreference = "Stop"` does not abort on a native command's
+        # non-zero exit, so an install failure would otherwise be reported below as a
+        # missing libclang.dll rather than as the install failure it is.
+        if ($LASTEXITCODE -ne 0) {
+          throw "choco install llvm failed with exit code $LASTEXITCODE"
+        }
         $llvmPath = "C:\Program Files\LLVM\bin"
         if (-not (Test-Path (Join-Path $llvmPath "libclang.dll"))) {
           throw "libclang.dll not found in LLVM installation"
@@ -111,6 +118,18 @@ runs:
         CXXFLAGS_i686_pc_windows_msvc: "/MD"
       run: |
         $ErrorActionPreference = "Stop"
+
+        # ~keep `Stop` does not apply to native commands: a failing `cargo` leaves the
+        # script running. Without this check a manifest-parse error surfaced pages later
+        # as `Copy-Item` reporting a missing .dll, which reads as a packaging bug rather
+        # than the build failure it is.
+        function Assert-NativeSuccess {
+          param([Parameter(Mandatory = $true)][string]$Operation)
+          if ($LASTEXITCODE -ne 0) {
+            throw "$Operation failed with exit code $LASTEXITCODE"
+          }
+        }
+
         $workspaceRoot = $env:GITHUB_WORKSPACE
         $crateDir = Join-Path $workspaceRoot "crates" $env:CRATE_NAME
 
@@ -126,14 +145,12 @@ runs:
         Copy-Item -Path $crateDir -Destination (Join-Path $buildTemp "crate") -Recurse
         Set-Location (Join-Path $buildTemp "crate")
 
-        # Strip workspace = true from Cargo.toml
+        # ~keep The crate now sits outside the workspace, so every inherited key has to be
+        # replaced with the workspace's concrete value. Deleting the lines is not enough:
+        # `version`, `edition` and `license` are required for the manifest to parse.
         $cargoToml = Join-Path (Get-Location) "Cargo.toml"
         if (Test-Path $cargoToml) {
-          $content = Get-Content $cargoToml -Raw
-          if ($content -match 'workspace = true') {
-            $content = $content -replace '^\s*workspace = true\s*$', ''
-            Set-Content -Path $cargoToml -Value $content
-          }
+          & "${{ github.action_path }}/scripts/deinherit-workspace.ps1" $cargoToml (Join-Path $workspaceRoot "Cargo.toml")
         }
 
         # ~keep Seed from the workspace lock so this build tracks the same dependency
@@ -141,26 +158,37 @@ runs:
         # `cargo generate-lockfile` and never copied the workspace lock at all, so it
         # re-resolved to latest on every run — the same defect that let a broken
         # `zune-core` release into the PHP job while `--locked` jobs stayed green.
-        # `--locked` is not usable here: stripping `workspace = true` above changes the
+        # `--locked` is not usable here: resolving `workspace = true` above changes the
         # manifest, so the seeded lock legitimately needs a minimal update.
         $workspaceLock = Join-Path $workspaceRoot "Cargo.lock"
         if (Test-Path $workspaceLock) {
           Copy-Item -Path $workspaceLock -Destination (Join-Path (Get-Location) "Cargo.lock")
         } else {
           cargo generate-lockfile
+          Assert-NativeSuccess "cargo generate-lockfile"
         }
         # Pin `time` to 0.3.47 to avoid the trait-impl conflict between `time` 0.3.48
         # and `cookie` 0.18.1 (E0119 in cookie 0.18.1). Tolerate absence in the graph.
-        try { cargo update -p time --precise 0.3.47 } catch { Write-Host "time crate not in dep graph; skipping pin" }
+        cargo update -p time --precise 0.3.47
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "time crate not in dep graph; skipping pin"
+          $global:LASTEXITCODE = 0
+        }
         if ($env:CARGO_FEATURES) {
           cargo build --release --features $env:CARGO_FEATURES
         } else {
           cargo build --release
         }
+        Assert-NativeSuccess "cargo build --release"
+
+        $builtDll = Join-Path (Get-Location) "target\release\$($env:LIB_NAME).dll"
+        if (-not (Test-Path $builtDll)) {
+          throw "cargo build --release succeeded but did not produce $builtDll; check the lib-name input and the crate's [lib] crate-type"
+        }
 
         $dllPath = Join-Path $workspaceRoot "target\release\$($env:LIB_NAME).dll"
         New-Item -ItemType Directory -Force -Path (Split-Path $dllPath) > $null
-        Copy-Item -Path (Join-Path (Get-Location) "target\release\$($env:LIB_NAME).dll") -Destination $dllPath
+        Copy-Item -Path $builtDll -Destination $dllPath
 
         Set-Location $workspaceRoot
         Remove-Item -Path $buildTemp -Recurse -Force

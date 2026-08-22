@@ -18,6 +18,11 @@ inputs:
     description: |
       Additional packages to check (one per line, format: output_key=package_name).
       Each is queried with the same registry and version.
+
+      A composite action can only propagate the outputs it declares, so the per-line
+      keys are NOT step outputs on the caller — reading `steps.<id>.outputs.<key>`
+      yields an empty string. Consume the results through `results` (a JSON object
+      keyed by `exists` plus every key here) or `all-exist`.
     required: false
     default: ""
   tap-repo:
@@ -52,6 +57,17 @@ outputs:
   exists:
     description: "Whether the primary package version exists (true/false)."
     value: ${{ steps.check.outputs.exists }}
+  all-exist:
+    description: >
+      Whether the primary package and every `extra-packages` entry exist (true/false).
+      Equals `exists` when `extra-packages` is empty.
+    value: ${{ steps.check.outputs.all-exist }}
+  results:
+    description: >
+      JSON object mapping `exists` and every `extra-packages` output key to a boolean,
+      e.g. `{"exists":true,"cli_exists":false}`. Read a single key with
+      `fromJSON(steps.<id>.outputs.results).cli_exists`.
+    value: ${{ steps.check.outputs.results }}
 runs:
   using: composite
   steps:
@@ -133,13 +149,26 @@ runs:
           done
         }
 
+        record_result() {
+          local key="$1" value="$2"
+          results=$(jq -c --arg key "${key}" --argjson value "${value}" '. + {($key): $value}' <<<"${results}")
+        }
+
+        results='{}'
+
         # Primary package check.
         primary_json=$(run_alef_check "${PACKAGE}")
         primary_exists=$(echo "${primary_json}" | jq -r '.exists // false')
         echo "exists=${primary_exists}" >>"$GITHUB_OUTPUT"
+        record_result exists "${primary_exists}"
+        all_exist="${primary_exists}"
         echo "Primary check: ${PACKAGE}@${VERSION} on ${REGISTRY} -> exists=${primary_exists}"
 
-        # Extra packages: same registry/version, emit per-line output keys.
+        # Extra packages: same registry/version. Their keys cannot be declared as action
+        # outputs (they come from the input, and a composite action propagates only what its
+        # `outputs:` block names), so they are folded into `results` and `all-exist`. Writing
+        # them to $GITHUB_OUTPUT as bare keys is what made them look wired up while every
+        # caller read an empty string.
         if [[ -n "${EXTRA_PACKAGES}" ]]; then
           while IFS= read -r line; do
             line="$(echo "${line}" | xargs)"
@@ -148,7 +177,14 @@ runs:
             extra_pkg="${line#*=}"
             extra_json=$(run_alef_check "${extra_pkg}")
             extra_exists=$(echo "${extra_json}" | jq -r '.exists // false')
-            echo "${output_key}=${extra_exists}" >>"$GITHUB_OUTPUT"
+            record_result "${output_key}" "${extra_exists}"
+            if [[ "${extra_exists}" != "true" ]]; then
+              all_exist=false
+            fi
             echo "Extra check (${output_key}): ${extra_pkg}@${VERSION} on ${REGISTRY} -> exists=${extra_exists}"
           done <<<"${EXTRA_PACKAGES}"
         fi
+
+        echo "all-exist=${all_exist}" >>"$GITHUB_OUTPUT"
+        echo "results=${results}" >>"$GITHUB_OUTPUT"
+        echo "Aggregate: all-exist=${all_exist} results=${results}"

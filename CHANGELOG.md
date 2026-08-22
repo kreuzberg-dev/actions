@@ -35,6 +35,78 @@ All notable changes to xberg-io/actions are documented in this file.
   `restore-keys` falling back to the include-hash prefix. `fetch.sh` already skipped objects present and
   hash-verified, so a manifest bump is now a delta fetch. New `restore-prefix` output on the cache-key
   step. (`fetch-test-documents/action.yml`, `fetch-test-documents/scripts/compute-cache-key.sh`)
+- **`publish-github-release` no longer reports success when its artifact glob matches zero files.**
+  `upload_artifacts.py` printed "No artifact files matched, skipping upload" and exited 0 whenever
+  `expand_artifact_patterns` returned nothing, so a build that produced no output silently skipped
+  the upload and left a release with zero assets reported as a successful publish. An audit of all
+  15 call sites across `alef`, `tree-sitter-language-pack`, `liter-llm`, `html-to-markdown`,
+  `crawlberg` and this repo found none that can legitimately pass an `artifacts` glob matching
+  nothing, so the empty case now exits 1 and names the unmatched pattern. The new `fail-if-empty`
+  input (default `"true"`, mirroring `upload-release-assets`) restores the warn-and-continue
+  behaviour per call for genuinely optional uploads.
+  (`publish-github-release/action.yml`, `publish-github-release/scripts/upload_artifacts.py`)
+
+- **`reusable-validate` installs Node/pnpm and wasm-pack before the strict snippet check.**
+  The job set up Rust, Python, Java, Go, Ruby, Dart, Elixir and clang-format but no JavaScript
+  toolchain, so `alef snippets check` aborted while preparing a wasm snippet session with
+  `before command failed: sh: 1: pnpm: not found` — the session builds the wasm-bindgen package
+  through `pnpm run build:all`/`wasm-pack` because the generated `pkg/` is gitignored. Both
+  toolchains are now installed via `setup-node-workspace@v1` and `setup-wasm-pack@v1`, gated on
+  `check-fixture-snippets` so lint-only callers are unaffected, and ordered after the drift check
+  so a `pnpm install` that refreshes `pnpm-lock.yaml` cannot be misreported as generated-file drift.
+  (`.github/workflows/reusable-validate.yml`)
+
+- **`publish-npm` no longer reports a package npm accepted as a failed publish.**
+  The post-publish presence check polled `registry.npmjs.org` for ~30s and exited 1 when the version
+  was not yet readable, but npm's own post-publish notice says a package "may take a few minutes to
+  become available". `@xberg-io/liter-llm` 1.17.3 published all six napi platform packages, tripped the
+  check on one of them, and exited before the main package was published — leaving `@xberg-io/liter-llm`
+  at 1.16.0 with `optionalDependencies` pinning platform versions that only existed at 1.17.3; the same
+  race stranded crawlberg 1.3.2's WASM package. The check now polls for a full 5 minutes with capped
+  exponential backoff, runs only after every package has been published rather than between publishes,
+  and is advisory: a version npm accepted is counted as published and reported with a `::warning::`
+  when the read side has not caught up, so it can no longer abort the publishes that follow it. Only
+  npm rejecting a publish still fails the step.
+  (`publish-npm/scripts/publish.py`)
+
+- **`build-php-extension` no longer leaves workspace inheritance in the manifest it builds out of tree.**
+  The Windows branch stripped inheritance with `-replace '^\s*workspace = true\s*$', ''`, which only matches
+  the bare form. Alef-generated manifests use the dotted form (`version.workspace = true`), so nothing was
+  stripped and cargo failed with "error inheriting `version` from workspace root manifest's
+  `workspace.package.version` ... failed to find a workspace root" — every Windows leg of a PHP release.
+  Both branches now resolve inheritance against the workspace manifest instead of deleting it: the dotted
+  form, the inline-table form (`version = { workspace = true }`) and the bare form are all recognised,
+  `[workspace.package]` and `[workspace.dependencies]` values are substituted in, `readme`/`license-file`
+  are dropped because they name files left behind at the workspace root, and a form that cannot be resolved
+  fails with a message naming the line instead of producing a manifest cargo will reject.
+  (`build-php-extension/action.yml`, `build-php-extension/scripts/deinherit-workspace.ps1`,
+  `build-php-extension/scripts/build-out-of-workspace.sh`)
+
+- **`build-php-extension` reports a Windows build failure as a build failure.**
+  `$ErrorActionPreference = "Stop"` does not abort PowerShell on a native command's non-zero exit, so
+  `cargo update` and `cargo build --release` could both fail and the step carried on until `Copy-Item`
+  reported the missing `.dll` — a missing-artifact message for what was a manifest-parse error. Every
+  native command in the Windows steps now checks `$LASTEXITCODE`, and a build that produces no library
+  fails with a message naming the expected path.
+  (`build-php-extension/action.yml`)
+
+- **`reusable-check-registries` no longer loses per-registry results to matrix collision.**
+  The `check` job declared a job-level `outputs: result: ...` while running under a matrix
+  strategy; a matrix job has one output namespace shared by every leg, so every registry's
+  result overwrote every other, and only whichever leg happened to finish last survived —
+  non-deterministically. Every caller gate built on `fromJson(needs.check-registries.outputs.results).<name>`
+  was reading an incomplete map, so a missing key evaluated as not-yet-published regardless of
+  the real registry state. Each leg now writes its own result to a uniquely-named artifact, and
+  a separate `aggregate` job fans them back in with `jq -s add`, a union over disjoint keys that
+  cannot depend on completion order. The per-leg verdict is written with `jq --arg`, not
+  `--argjson`: callers compare `fromJson(...).<name> != 'true'`, a string comparison, and
+  `--argjson` would have parsed the value into a JSON boolean — GitHub Actions casts a
+  boolean/string mismatch to numbers, `true` to `1` and `'true'` to `NaN`, so `true != 'true'`
+  is always true and every gate would have failed open again, just via value type instead of
+  the collapsed key. A check step that succeeds but sets no `all-exist` output now fails the
+  leg loudly instead of writing a silent empty-string verdict, which would have failed open the
+  same way.
+  (`.github/workflows/reusable-check-registries.yml`, `tests/test_reusable_check_registries.py`)
 
 - **`build-php-extension` no longer corrupts its own `extension-path` output.** The build script's
   stdout is read straight into `$GITHUB_OUTPUT`, but on any crate that inherits `workspace = true`
@@ -103,6 +175,21 @@ All notable changes to xberg-io/actions are documented in this file.
 ## [1.8.124] - 2026-08-07
 
 ### Fixed
+
+- **`check-registry` extra-package results now reach the caller.** The action accepted
+  `extra-packages` and wrote one `$GITHUB_OUTPUT` key per line, but a composite action
+  propagates only the outputs its `outputs:` block declares — and it declared just `exists`.
+  Every extra key arrived at the caller as an empty string, so every guard built on one was
+  dead: crawlberg's v1.2.1 publish run shows the consuming step evaluating
+  `if [[ "false" == "true" && "" == "true" && "" == "true" && "" == "true" ]]`. The extras are
+  now folded into two declared outputs — `all-exist` (primary and every extra exist) and
+  `results` (a JSON object keyed by `exists` plus every extra key) — and the undeclared bare
+  keys are gone. `reusable-check-registries` reports `all-exist` per check instead of `exists`,
+  so a check with extra packages no longer reports "published" on the strength of the primary
+  package alone. Callers reading `steps.<id>.outputs.<key>` for an extra package must move to
+  `all-exist` or `fromJSON(...outputs.results).<key>`.
+  (`check-registry/action.yml`, `.github/workflows/reusable-check-registries.yml`,
+  `tests/test_check_registry.py`)
 
 - **`fetch-test-documents` works on Windows runners.** The action invoked its scripts via
   `${{ github.action_path }}` inlined into a bash `run:` body; on Windows that expands to

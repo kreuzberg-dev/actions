@@ -34,10 +34,20 @@ TRANSIENT_PUBLISH_PATTERN = re.compile(
 MAX_PUBLISH_RETRIES = 4
 PUBLISH_RETRY_BACKOFF_SECONDS = 5
 
-REGISTRY_CHECK_ATTEMPTS = 5
-REGISTRY_CHECK_BACKOFF_SECONDS = 3
+# ~keep npm's own post-publish notice — "Your package is being processed and may take a few
+# minutes to become available" — describes the registry read path lagging the write path.
+# A presence check that gives up in seconds turns that lag into a reported failure:
+# @xberg-io/liter-llm 1.17.3 published all six napi platform packages, failed this check on
+# one of them, exited 1, and so never reached the main package — which stayed at 1.16.0 while
+# its optionalDependencies pinned platform versions that only existed at 1.17.3.
+REGISTRY_CHECK_WINDOW_SECONDS = 300
+REGISTRY_CHECK_INITIAL_BACKOFF_SECONDS = 5
+REGISTRY_CHECK_MAX_BACKOFF_SECONDS = 30
 REGISTRY_CHECK_TIMEOUT_SECONDS = 30
 HTTP_OK = 200
+HTTP_NOT_FOUND = 404
+HTTP_TOO_MANY_REQUESTS = 429
+HTTP_SERVER_ERROR = 500
 
 SETUP_NODE_PLACEHOLDER = "XXXXX-XXXXX-XXXXX-XXXXX"
 
@@ -145,8 +155,21 @@ def read_package_identity(tgz_path: Path) -> tuple[str, str] | None:
     return None
 
 
+def registry_check_delays() -> list[int]:
+    """Backoff delays spanning at least REGISTRY_CHECK_WINDOW_SECONDS, doubling up to the cap."""
+    delays: list[int] = []
+    delay = REGISTRY_CHECK_INITIAL_BACKOFF_SECONDS
+    elapsed = 0
+    while elapsed < REGISTRY_CHECK_WINDOW_SECONDS:
+        delay = min(delay, REGISTRY_CHECK_MAX_BACKOFF_SECONDS)
+        delays.append(delay)
+        elapsed += delay
+        delay *= 2
+    return delays
+
+
 def registry_has_version(package: str, version: str) -> bool:
-    """Poll the npm registry until `package@version` is retrievable.
+    """Poll the npm registry for `package@version` across the full propagation window.
 
     npm reports success for publishes that never land — a Sigstore failure, a
     trusted-publisher mismatch, or a misclassified error all exit the CLI without the
@@ -155,20 +178,44 @@ def registry_has_version(package: str, version: str) -> bool:
     """
     encoded = urllib.parse.quote(package, safe="")
     url = f"https://registry.npmjs.org/{encoded}/{version}"
-    for attempt in range(1, REGISTRY_CHECK_ATTEMPTS + 1):
+    for delay in [*registry_check_delays(), None]:
         request = urllib.request.Request(url, headers={"User-Agent": "publish-npm/1.0"})
         try:
             with urllib.request.urlopen(request, timeout=REGISTRY_CHECK_TIMEOUT_SECONDS) as response:  # noqa: S310
                 if response.status == HTTP_OK:
                     return True
         except urllib.error.HTTPError as error:
-            if error.code not in (404, 429) and error.code < 500:
+            if error.code not in (HTTP_NOT_FOUND, HTTP_TOO_MANY_REQUESTS) and error.code < HTTP_SERVER_ERROR:
                 return False
         except (urllib.error.URLError, OSError, TimeoutError):
             pass
-        if attempt < REGISTRY_CHECK_ATTEMPTS:
-            time.sleep(REGISTRY_CHECK_BACKOFF_SECONDS * attempt)
+        if delay is None:
+            break
+        time.sleep(delay)
     return False
+
+
+def confirm_registry_presence(identities: list[tuple[str, str]]) -> list[str]:
+    """Report which of the already-accepted `identities` are not yet readable from the registry.
+
+    Advisory only, and deliberately so. Every identity here is one npm accepted, so an absent
+    result is registry read lag far more often than a lost publish. Failing the step on it
+    strands whatever has not been published yet — the platform packages after this one, and the
+    main package whose optionalDependencies pin them — which is strictly worse than shipping a
+    package the read path has not caught up to. Real losses are caught by the dedicated
+    `check-registry` / `verify-platform-packages` gates, which run against a settled registry.
+    """
+    unconfirmed: list[str] = []
+    for name, version in identities:
+        if registry_has_version(name, version):
+            print(f"Confirmed {name}@{version} on the npm registry")
+            continue
+        unconfirmed.append(f"{name}@{version}")
+        print(
+            f"::warning::{name}@{version} was accepted by npm but is not readable from the registry "
+            f"after {REGISTRY_CHECK_WINDOW_SECONDS}s; npm reports propagation can take several minutes"
+        )
+    return unconfirmed
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
@@ -257,48 +304,39 @@ def _strip_empty_npm_auth_token() -> None:
             print(f"No _authToken line found in {npmrc_path} (file present, no strip needed)")
 
 
-def main() -> None:
-    packages_dir = os.environ.get("INPUT_PACKAGES_DIR", "")
-    package_dir = os.environ.get("INPUT_PACKAGE_DIR", "")
-    npm_tag = os.environ.get("INPUT_NPM_TAG", "latest")
-    access = os.environ.get("INPUT_ACCESS", "public")
-    provenance = os.environ.get("INPUT_PROVENANCE", "true").lower() == "true"
-    dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
+def publish_package_directory(package_dir: str, flags: list[str], *, dry_run: bool) -> None:
+    """Publish a single package from a working directory."""
+    pkg_path = Path(package_dir)
+    if not pkg_path.is_dir():
+        print(f"Error: package directory not found: {package_dir}", file=sys.stderr)
+        sys.exit(1)
 
-    _strip_empty_npm_auth_token()
+    print(f"Publishing from directory: {package_dir}")
+    exit_code, output = _run_publish_with_retry(["npm", "publish", ".", *flags], cwd=pkg_path)
 
-    mode = validate_inputs(packages_dir, package_dir)
-    flags = build_publish_flags(access, npm_tag, provenance, dry_run)
+    if exit_code == 0:
+        print("Published successfully")
+    elif is_already_published(output):
+        print("Package already published, skipping")
+        print(output, file=sys.stderr)
+    else:
+        print("Error publishing:", file=sys.stderr)
+        print(output, file=sys.stderr)
+        sys.exit(1)
 
-    if mode == "dir":
-        pkg_path = Path(package_dir)
-        if not pkg_path.is_dir():
-            print(f"Error: package directory not found: {package_dir}", file=sys.stderr)
-            sys.exit(1)
-
-        print(f"Publishing from directory: {package_dir}")
-        exit_code, output = _run_publish_with_retry(["npm", "publish", ".", *flags], cwd=pkg_path)
-
-        if exit_code == 0:
-            print("Published successfully")
-        elif is_already_published(output):
-            print("Package already published, skipping")
-            print(output, file=sys.stderr)
-        else:
-            print("Error publishing:", file=sys.stderr)
-            print(output, file=sys.stderr)
-            sys.exit(1)
-
-        if not dry_run:
-            manifest = json.loads((pkg_path / "package.json").read_text())
-            name, version = manifest["name"], manifest["version"]
-            if not registry_has_version(name, version):
-                print(f"Error: {name}@{version} is absent from the npm registry after publish", file=sys.stderr)
-                print(output, file=sys.stderr)
-                sys.exit(1)
-            print(f"Confirmed {name}@{version} on the npm registry")
+    if dry_run:
         return
 
+    manifest = json.loads((pkg_path / "package.json").read_text())
+    confirm_registry_presence([(manifest["name"], manifest["version"])])
+
+
+def publish_tgz_directory(packages_dir: str, flags: list[str], npm_tag: str, *, dry_run: bool) -> None:
+    """Publish every non-stub .tgz under `packages_dir`, then confirm the accepted ones.
+
+    Publishing runs to completion before any registry confirmation so that no package's
+    propagation lag can delay — or, via a non-zero exit, prevent — the publishes after it.
+    """
     pkgs_path = Path(packages_dir)
     if not pkgs_path.is_dir():
         print(f"Error: packages directory not found: {packages_dir}", file=sys.stderr)
@@ -314,6 +352,7 @@ def main() -> None:
     failed = 0
     published = 0
     skipped = 0
+    accepted: list[tuple[str, str]] = []
 
     for tgz in tgz_files:
         name = tgz.name
@@ -337,20 +376,36 @@ def main() -> None:
             failed += 1
             continue
 
-        identity = read_package_identity(tgz)
-        if not dry_run and identity and not registry_has_version(*identity):
-            print(
-                f"  Error: {identity[0]}@{identity[1]} is absent from the npm registry after publish", file=sys.stderr
-            )
-            print(output, file=sys.stderr)
-            failed += 1
-            continue
         published += 1
+        if identity := read_package_identity(tgz):
+            accepted.append(identity)
 
     print(f"Published: {published}, Failed: {failed}, Skipped: {skipped}")
 
+    if not dry_run and accepted and (unconfirmed := confirm_registry_presence(accepted)):
+        print(f"Accepted by npm but not yet readable from the registry: {', '.join(unconfirmed)}")
+
     if failed > 0:
         sys.exit(1)
+
+
+def main() -> None:
+    packages_dir = os.environ.get("INPUT_PACKAGES_DIR", "")
+    package_dir = os.environ.get("INPUT_PACKAGE_DIR", "")
+    npm_tag = os.environ.get("INPUT_NPM_TAG", "latest")
+    access = os.environ.get("INPUT_ACCESS", "public")
+    provenance = os.environ.get("INPUT_PROVENANCE", "true").lower() == "true"
+    dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
+
+    _strip_empty_npm_auth_token()
+
+    mode = validate_inputs(packages_dir, package_dir)
+    flags = build_publish_flags(access, npm_tag, provenance, dry_run)
+
+    if mode == "dir":
+        publish_package_directory(package_dir, flags, dry_run=dry_run)
+    else:
+        publish_tgz_directory(packages_dir, flags, npm_tag, dry_run=dry_run)
 
 
 if __name__ == "__main__":
