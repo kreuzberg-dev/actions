@@ -26,4 +26,16 @@ fi
 
 include_hash="$(sha256_of "$normalized_patterns_file")"
 
-echo "key=fetch-test-documents-v1-${manifest_hash}-${include_hash}" >>"$GITHUB_OUTPUT"
+# ~keep The include hash leads and the manifest hash trails so that "everything built for this
+# same selection" is a stable key prefix. That prefix is what restore-keys falls back to: when
+# corpus.lock.json changes, the previous run's object store is still restored and fetch.sh only
+# downloads the objects that actually changed, instead of re-pulling the whole selection. Objects
+# are content-addressed and immutable, and every one is re-verified against its sha256 before use,
+# so reusing a stale store is always safe. Reversing this order silently reverts to a full
+# re-download on every manifest bump.
+prefix="fetch-test-documents-v1-${include_hash}-"
+
+{
+	echo "key=${prefix}${manifest_hash}"
+	echo "restore-prefix=${prefix}"
+} >>"$GITHUB_OUTPUT"

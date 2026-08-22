@@ -26,6 +26,15 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`fetch-test-documents` no longer re-downloads the entire corpus whenever `corpus.lock.json` changes.**
+  The `actions/cache` step had an exact `key` and no `restore-keys`, so a one-document manifest edit
+  invalidated every cache and every job in every consuming repo re-pulled the full selection from the
+  bucket — measured at ~420 GiB of GCS egress across ten days and five lock-file edits. The key is now
+  `fetch-test-documents-v1-<include-hash>-<manifest-hash>` (include hash leading, so caches stay scoped
+  per `include` selection rather than a narrow job restoring and re-saving the whole corpus), with
+  `restore-keys` falling back to the include-hash prefix. `fetch.sh` already skipped objects present and
+  hash-verified, so a manifest bump is now a delta fetch. New `restore-prefix` output on the cache-key
+  step. (`fetch-test-documents/action.yml`, `fetch-test-documents/scripts/compute-cache-key.sh`)
 - **`publish-github-release` no longer reports success when its artifact glob matches zero files.**
   `upload_artifacts.py` printed "No artifact files matched, skipping upload" and exited 0 whenever
   `expand_artifact_patterns` returned nothing, so a build that produced no output silently skipped
