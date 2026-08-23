@@ -26,6 +26,20 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`check-registry` no longer reports every failed check as "exit code 0" and then crashes on jq.**
+  The retry loop used `if alef ...; then return 0; fi` followed by `local exit_code=$?`. An `if` with
+  no `else` leaves `$?` at 0 when the condition is false, so a genuine failure was logged as
+  "Attempt N failed with exit code 0", and after the retries were exhausted the function returned 0
+  with empty stdout. `record_result` then handed that empty string to `jq --argjson`, which exits 2
+  with "invalid JSON text passed to --argjson" — turning five HTTP 403s from the GitHub API into a
+  red job in alef's v0.66.0 publish run while every real job, including the crates.io publish itself,
+  had succeeded. The status is now captured off the command rather than off a consumed `if`, each
+  attempt's stdout is buffered so a failed attempt cannot contaminate a later success, and a check
+  that cannot be completed or parsed is recorded as `false` (not published) with a `::warning::`
+  rather than crashing the step — which is what every caller already assumes, and what keeps a
+  transient registry hiccup from stranding a release.
+  (`check-registry/action.yml`)
+
 - **`fetch-test-documents` no longer re-downloads the entire corpus whenever `corpus.lock.json` changes.**
   The `actions/cache` step had an exact `key` and no `restore-keys`, so a one-document manifest edit
   invalidated every cache and every job in every consuming repo re-pulled the full selection from the
@@ -35,6 +49,7 @@ All notable changes to xberg-io/actions are documented in this file.
   `restore-keys` falling back to the include-hash prefix. `fetch.sh` already skipped objects present and
   hash-verified, so a manifest bump is now a delta fetch. New `restore-prefix` output on the cache-key
   step. (`fetch-test-documents/action.yml`, `fetch-test-documents/scripts/compute-cache-key.sh`)
+
 - **`publish-github-release` no longer reports success when its artifact glob matches zero files.**
   `upload_artifacts.py` printed "No artifact files matched, skipping upload" and exited 0 whenever
   `expand_artifact_patterns` returned nothing, so a build that produced no output silently skipped

@@ -108,11 +108,18 @@ runs:
       run: |
         set -euo pipefail
 
+        # A check that cannot be completed is reported as "not published". Every caller uses
+        # this action as an idempotency guard in front of a publish step that is itself
+        # idempotent, so failing open costs a redundant publish attempt while failing closed
+        # would strand a release on a transient registry hiccup. ~keep
+        UNKNOWN_RESULT=false
+
         run_alef_check() {
           local pkg="$1"
           local max_attempts=5
           local attempt=1
           local backoff=2
+          local exit_code output
 
           while [[ $attempt -le $max_attempts ]]; do
             local args=(check-registry --registry "${REGISTRY}" --package "${pkg}" --version "${VERSION}" --json)
@@ -132,33 +139,71 @@ runs:
               args+=(--required-assets "${REQUIRED_ASSETS}")
             fi
 
-            if alef "${args[@]}"; then
+            # `if alef ...; then return 0; fi` followed by `$?` always read 0: an `if` with no
+            # `else` leaves `$?` at 0 when the condition is false, so every failure looked like
+            # a success and the caller got empty stdout. Capture the status off the command
+            # itself. Buffering stdout also keeps a failed attempt's output out of the result. ~keep
+            exit_code=0
+            output=$(alef "${args[@]}") || exit_code=$?
+
+            if [[ $exit_code -eq 0 ]]; then
+              printf '%s\n' "${output}"
               return 0
             fi
 
-            local exit_code=$?
             if [[ $attempt -lt $max_attempts ]]; then
               echo "Attempt $attempt failed with exit code $exit_code, retrying in ${backoff}s..." >&2
               sleep "$backoff"
               backoff=$((backoff * 2))
-              ((attempt++))
+              attempt=$((attempt + 1))
             else
               echo "Max retries ($max_attempts) exhausted for package: $pkg" >&2
-              return $exit_code
+              return "$exit_code"
             fi
           done
+
+          return 1
+        }
+
+        # Sets `package_exists` to "true" or "false". Messages go to stdout so `::warning::`
+        # reaches the runner as an annotation; the result travels by variable rather than by
+        # stdout capture so the two cannot collide. ~keep
+        check_package() {
+          local pkg="$1"
+          local status=0
+          local json
+
+          package_exists="${UNKNOWN_RESULT}"
+
+          json=$(run_alef_check "${pkg}") || status=$?
+
+          if [[ $status -ne 0 ]]; then
+            echo "::warning::Registry check for ${pkg}@${VERSION} on ${REGISTRY} failed (exit ${status}); treating it as not published"
+            return 0
+          fi
+
+          if ! package_exists=$(jq -e -r 'if .exists == true then "true" else "false" end' <<<"${json}" 2>/dev/null); then
+            package_exists="${UNKNOWN_RESULT}"
+            echo "::warning::Registry check for ${pkg}@${VERSION} on ${REGISTRY} returned unparseable output; treating it as not published"
+          fi
         }
 
         record_result() {
           local key="$1" value="$2"
+          # `jq --argjson` exits 2 on anything that is not JSON, which turned a failed check into
+          # a crashed step. Nothing but a boolean is ever a meaningful answer here. ~keep
+          if [[ "${value}" != "true" && "${value}" != "false" ]]; then
+            echo "::warning::Registry check for '${key}' produced a non-boolean result; recording ${UNKNOWN_RESULT}"
+            value="${UNKNOWN_RESULT}"
+          fi
           results=$(jq -c --arg key "${key}" --argjson value "${value}" '. + {($key): $value}' <<<"${results}")
         }
 
         results='{}'
 
         # Primary package check.
-        primary_json=$(run_alef_check "${PACKAGE}")
-        primary_exists=$(echo "${primary_json}" | jq -r '.exists // false')
+        check_package "${PACKAGE}"
+        primary_exists="${package_exists}"
         echo "exists=${primary_exists}" >>"$GITHUB_OUTPUT"
         record_result exists "${primary_exists}"
         all_exist="${primary_exists}"
@@ -175,8 +220,8 @@ runs:
             [[ -z "${line}" ]] && continue
             output_key="${line%%=*}"
             extra_pkg="${line#*=}"
-            extra_json=$(run_alef_check "${extra_pkg}")
-            extra_exists=$(echo "${extra_json}" | jq -r '.exists // false')
+            check_package "${extra_pkg}"
+            extra_exists="${package_exists}"
             record_result "${output_key}" "${extra_exists}"
             if [[ "${extra_exists}" != "true" ]]; then
               all_exist=false

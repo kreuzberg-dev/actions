@@ -31,7 +31,11 @@ def _check_script() -> str:
 
 
 def _stub_alef(bin_dir: Path, existing: list[str]) -> None:
-    """Install an `alef` on PATH that reports `existing` packages as published."""
+    """Install an `alef` on PATH that reports `existing` packages as published.
+
+    `FAILING_PACKAGES` makes the stub exit non-zero (as alef does when the registry answers
+    HTTP 403), and `BROKEN_OUTPUT_PACKAGES` makes it succeed while printing non-JSON.
+    """
     bin_dir.mkdir(parents=True, exist_ok=True)
     stub = bin_dir / "alef"
     stub.write_text(
@@ -41,6 +45,27 @@ def _stub_alef(bin_dir: Path, existing: list[str]) -> None:
         "while [[ $# -gt 0 ]]; do\n"
         '  if [[ "$1" == "--package" ]]; then package="$2"; shift; fi\n'
         "  shift\n"
+        "done\n"
+        "for bad in ${FAILING_PACKAGES:-}; do\n"
+        '  if [[ "${bad}" == "${package}" ]]; then\n'
+        '    echo "ERROR GitHub API GET .../releases/tags: HTTP request failed: http status: 403" >&2\n'
+        '    exit "${FAIL_EXIT_CODE:-1}"\n'
+        "  fi\n"
+        "done\n"
+        "for flaky in ${FLAKY_PACKAGES:-}; do\n"
+        '  if [[ "${flaky}" == "${package}" ]]; then\n'
+        '    if [[ ! -f "${FLAKY_STATE}" ]]; then\n'
+        '      : >"${FLAKY_STATE}"\n'
+        "      printf 'partial garbage from a failed attempt\\n'\n"
+        "      exit 1\n"
+        "    fi\n"
+        "  fi\n"
+        "done\n"
+        "for broken in ${BROKEN_OUTPUT_PACKAGES:-}; do\n"
+        '  if [[ "${broken}" == "${package}" ]]; then\n'
+        "    printf 'not json at all\\n'\n"
+        "    exit 0\n"
+        "  fi\n"
         "done\n"
         "for known in ${EXISTING_PACKAGES:-}; do\n"
         '  if [[ "${known}" == "${package}" ]]; then\n'
@@ -53,10 +78,29 @@ def _stub_alef(bin_dir: Path, existing: list[str]) -> None:
     stub.chmod(0o755)
 
 
-def _run_check(tmp_path: Path, *, package: str, extra_packages: str, existing: list[str]) -> dict[str, str]:
-    """Execute the action's own check step and return the keys it wrote to $GITHUB_OUTPUT."""
+def _stub_sleep(bin_dir: Path) -> None:
+    """Neutralise the action's retry backoff so the failure paths run in test time."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    stub = bin_dir / "sleep"
+    stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+    stub.chmod(0o755)
+
+
+def _execute(
+    tmp_path: Path,
+    *,
+    package: str,
+    extra_packages: str,
+    existing: list[str],
+    failing: list[str] | None = None,
+    fail_exit_code: int = 1,
+    broken_output: list[str] | None = None,
+    flaky: list[str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    """Execute the action's own check step; return the process and its $GITHUB_OUTPUT keys."""
     bin_dir = tmp_path / "bin"
     _stub_alef(bin_dir, existing)
+    _stub_sleep(bin_dir)
     github_output = tmp_path / "github_output"
     github_output.write_text("")
 
@@ -64,6 +108,11 @@ def _run_check(tmp_path: Path, *, package: str, extra_packages: str, existing: l
         "PATH": f"{bin_dir}:{shutil.os.environ['PATH']}",
         "GITHUB_OUTPUT": str(github_output),
         "EXISTING_PACKAGES": " ".join(existing),
+        "FAILING_PACKAGES": " ".join(failing or []),
+        "FAIL_EXIT_CODE": str(fail_exit_code),
+        "BROKEN_OUTPUT_PACKAGES": " ".join(broken_output or []),
+        "FLAKY_PACKAGES": " ".join(flaky or []),
+        "FLAKY_STATE": str(tmp_path / "flaky-state"),
         "REGISTRY": "cratesio",
         "PACKAGE": package,
         "VERSION": "1.2.3",
@@ -83,7 +132,6 @@ def _run_check(tmp_path: Path, *, package: str, extra_packages: str, existing: l
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"check step failed: {result.stderr}"
 
     outputs: dict[str, str] = {}
     for line in github_output.read_text().splitlines():
@@ -91,6 +139,13 @@ def _run_check(tmp_path: Path, *, package: str, extra_packages: str, existing: l
             continue
         key, _, value = line.partition("=")
         outputs[key] = value
+    return result, outputs
+
+
+def _run_check(tmp_path: Path, *, package: str, extra_packages: str, existing: list[str]) -> dict[str, str]:
+    """Execute the check step, requiring it to succeed, and return its outputs."""
+    result, outputs = _execute(tmp_path, package=package, extra_packages=extra_packages, existing=existing)
+    assert result.returncode == 0, f"check step failed: {result.stderr}"
     return outputs
 
 
@@ -151,6 +206,86 @@ def test_every_emitted_output_key_is_declared_by_the_action(tmp_path):
         f"{sorted(undeclared)} are written to $GITHUB_OUTPUT but not declared as action outputs, "
         "so callers read an empty string"
     )
+
+
+def test_retry_loop_reports_the_real_exit_code_not_zero(tmp_path):
+    """`if cmd; then return 0; fi` leaves `$?` at 0, so every failure was logged as 'exit code 0'."""
+    result, _ = _execute(
+        tmp_path,
+        package="widget",
+        extra_packages="",
+        existing=[],
+        failing=["widget"],
+        fail_exit_code=7,
+    )
+
+    assert "failed with exit code 7" in result.stderr, result.stderr
+    assert "failed with exit code 0" not in result.stderr, "the retry loop is misreading $? again"
+    assert "Max retries (5) exhausted" in result.stderr
+
+
+def test_failed_check_is_reported_as_not_published_instead_of_crashing_jq(tmp_path):
+    """A check that never completes must not reach `jq --argjson` with an empty string."""
+    result, outputs = _execute(
+        tmp_path,
+        package="widget",
+        extra_packages="",
+        existing=[],
+        failing=["widget"],
+    )
+
+    assert result.returncode == 0, f"the step crashed instead of failing open: {result.stderr}"
+    assert "invalid JSON text passed to --argjson" not in result.stderr
+    assert outputs["exists"] == "false"
+    assert outputs["all-exist"] == "false"
+    assert json.loads(outputs["results"]) == {"exists": False}
+    assert "::warning::" in result.stdout, "a check that failed open must say so"
+
+
+def test_unparseable_alef_output_is_treated_as_not_published(tmp_path):
+    result, outputs = _execute(
+        tmp_path,
+        package="widget",
+        extra_packages="",
+        existing=[],
+        broken_output=["widget"],
+    )
+
+    assert result.returncode == 0, f"non-JSON output crashed the step: {result.stderr}"
+    assert outputs["exists"] == "false"
+    assert json.loads(outputs["results"]) == {"exists": False}
+    assert "unparseable output" in result.stdout
+
+
+def test_a_failed_extra_package_check_clears_all_exist_without_crashing(tmp_path):
+    result, outputs = _execute(
+        tmp_path,
+        package="widget",
+        extra_packages="cli_exists=widget-cli\n",
+        existing=["widget"],
+        failing=["widget-cli"],
+    )
+
+    assert result.returncode == 0, f"the step crashed instead of failing open: {result.stderr}"
+    assert outputs["exists"] == "true"
+    assert outputs["all-exist"] == "false"
+    assert json.loads(outputs["results"]) == {"exists": True, "cli_exists": False}
+
+
+def test_a_retry_recovers_and_the_failed_attempt_output_is_discarded(tmp_path):
+    """The first attempt fails after printing noise; the result must be the retry's clean JSON."""
+    result, outputs = _execute(
+        tmp_path,
+        package="widget",
+        extra_packages="",
+        existing=["widget"],
+        flaky=["widget"],
+    )
+
+    assert result.returncode == 0, f"the retry did not recover: {result.stderr}"
+    assert "Attempt 1 failed with exit code 1" in result.stderr
+    assert outputs["exists"] == "true"
+    assert json.loads(outputs["results"]) == {"exists": True}
 
 
 @pytest.mark.parametrize("name", ["exists", "all-exist", "results"])
