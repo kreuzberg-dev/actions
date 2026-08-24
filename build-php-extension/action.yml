@@ -148,9 +148,14 @@ runs:
         # ~keep The crate now sits outside the workspace, so every inherited key has to be
         # replaced with the workspace's concrete value. Deleting the lines is not enough:
         # `version`, `edition` and `license` are required for the manifest to parse.
+        # ~keep The copy holds the binding crate alone, so a surviving `path = "../<core>"`
+        # resolves against the build dir and cargo dies on "failed to read
+        # <build-dir>\<core>\Cargo.toml". The Linux/macOS branch has stripped those since
+        # 579b492; this branch never did, which is why only `PHP (windows)` failed.
         $cargoToml = Join-Path (Get-Location) "Cargo.toml"
         if (Test-Path $cargoToml) {
           & "${{ github.action_path }}/scripts/deinherit-workspace.ps1" $cargoToml (Join-Path $workspaceRoot "Cargo.toml")
+          & "${{ github.action_path }}/scripts/strip-internal-paths.ps1" $cargoToml
         }
 
         # ~keep Seed from the workspace lock so this build tracks the same dependency

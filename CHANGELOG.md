@@ -26,6 +26,16 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`build-php-extension` no longer leaves internal path-deps in the Windows out-of-workspace build.**
+  The isolated build copies the binding crate alone, so a sibling `path = "../<core>"` in its manifest
+  resolves against the build directory rather than the workspace. The Linux/macOS branch has stripped
+  those since 579b492, but the Windows branch runs inline pwsh and never received the equivalent, so
+  cargo died on `failed to read <build-dir>\<core>\Cargo.toml (os error 3)` — a `PHP (windows)` job
+  failing on its own while every Unix leg of the same matrix passed. The stripping is now a
+  `strip-internal-paths.ps1` sibling of `deinherit-workspace.ps1` and runs on both branches; a
+  `windows-latest` job asserts its output, and the Linux suite now covers the path-strip it never did.
+  (`build-php-extension/action.yml`, `build-php-extension/scripts/strip-internal-paths.ps1`)
+
 - **`check-registry` no longer reports every failed check as "exit code 0" and then crashes on jq.**
   The retry loop used `if alef ...; then return 0; fi` followed by `local exit_code=$?`. An `if` with
   no `else` leaves `$?` at 0 when the condition is false, so a genuine failure was logged as
