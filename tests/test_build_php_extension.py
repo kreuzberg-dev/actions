@@ -326,3 +326,85 @@ def test_action_writes_output_with_heredoc_delimiter():
     content = _ACTION.read_text()
     assert "extension-path<<GHA_EXTENSION_PATH_EOF" in content
     assert 'echo "extension-path=$extension_path"' not in content
+
+
+# ~keep The isolated build copies the binding crate and nothing else, so a sibling
+# `path = "../<core>"` that survives the rewrite resolves against the build directory:
+# `failed to read <build-dir>/<core>/Cargo.toml`. Keeping `version` lets cargo fall back
+# to the registry, which is the whole point of the strip.
+_PATH_DEP_CRATE_MANIFEST = """[package]
+name = "demo-ext"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "demo_ext"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+core-lib = { version = "3.11.4", path = "../core-lib", features = ["serde"] }
+
+[dev-dependencies]
+test-helper = { path = "../test-helper", version = "0.2" }
+
+[target.'cfg(unix)'.dependencies]
+unix-only = { version = "1", path = "../unix-only" }
+"""
+
+
+@pytest.fixture
+def workspace_with_internal_path_deps(workspace: Path) -> Path:
+    """A binding crate depending on siblings the isolated copy does not carry."""
+    workspace.joinpath("crates", _CRATE_NAME, "Cargo.toml").write_text(_PATH_DEP_CRATE_MANIFEST)
+    return workspace
+
+
+def test_internal_path_deps_are_stripped_from_the_isolated_manifest(
+    workspace_with_internal_path_deps: Path, stub_cargo_path: str
+):
+    """Regression: the sibling crate is not copied, so the path must not survive."""
+    rewritten = _rewritten_manifest(workspace_with_internal_path_deps, stub_cargo_path)
+    document = tomlkit.parse(rewritten)
+
+    for table, name in (("dependencies", "core-lib"), ("dev-dependencies", "test-helper")):
+        dependency = document[table][name]
+        assert "path" not in dependency, f"{table}.{name} kept a path the isolated build cannot resolve"
+        assert "version" in dependency, f"{table}.{name} lost the version it must now resolve by"
+
+    unix_only = document["target"]["cfg(unix)"]["dependencies"]["unix-only"]
+    assert "path" not in unix_only
+    assert unix_only["version"] == "1"
+
+
+def test_stripping_paths_leaves_the_other_dependency_keys_intact(
+    workspace_with_internal_path_deps: Path, stub_cargo_path: str
+):
+    """Dropping the key must not orphan the commas around it and break the manifest."""
+    core_lib = tomlkit.parse(_rewritten_manifest(workspace_with_internal_path_deps, stub_cargo_path))["dependencies"][
+        "core-lib"
+    ]
+
+    assert core_lib["version"] == "3.11.4"
+    assert core_lib["features"] == ["serde"]
+
+
+def test_non_dependency_paths_survive_the_strip(workspace_with_internal_path_deps: Path, stub_cargo_path: str):
+    """`[lib] path` names a file inside the copy; stripping it would break the build."""
+    rewritten = _rewritten_manifest(workspace_with_internal_path_deps, stub_cargo_path)
+
+    assert tomlkit.parse(rewritten)["lib"]["path"] == "src/lib.rs"
+
+
+def test_the_windows_branch_strips_internal_path_deps_as_well():
+    """Regression: the strip landed on the bash branch only, so `PHP (windows)` alone died.
+
+    The Windows leg runs inline pwsh rather than `build-out-of-workspace.sh`, so every
+    manifest rewrite has to be wired into it separately or the two branches drift.
+    """
+    script = _ROOT / "build-php-extension" / "scripts" / "strip-internal-paths.ps1"
+    assert script.is_file(), "the Windows branch has no path-stripping script to call"
+    assert "strip-internal-paths.ps1" in _ACTION.read_text(), (
+        "action.yml never invokes the Windows path-stripping script"
+    )

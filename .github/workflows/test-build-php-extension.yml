@@ -97,7 +97,7 @@ jobs:
           test -f "${{ steps.build.outputs.extension-path }}"
           file "${{ steps.build.outputs.extension-path }}"
 
-  test-deinherit-windows:
+  test-manifest-rewrites-windows:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -204,4 +204,65 @@ jobs:
           }
           if (-not $failed) {
             throw "expected the script to reject a merged inline-table inheritance it cannot resolve"
+          }
+
+      # ~keep The isolated copy carries the binding crate alone, so a sibling
+      # `path = "../<core>"` that survives resolves against the build directory:
+      # `failed to read <build-dir>\<core>\Cargo.toml`, which is exactly how the
+      # `PHP (windows)` leg failed while every Unix leg passed.
+      - name: Strip residual internal path-deps
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $fixture = Join-Path $env:RUNNER_TEMP "strip-paths"
+          New-Item -ItemType Directory -Force -Path $fixture > $null
+
+          $crateManifest = Join-Path $fixture "Cargo.toml"
+          Set-Content -LiteralPath $crateManifest -Value @'
+          [package]
+          name = "fixture"
+          version = "0.1.0"
+
+          [lib]
+          path = "src/lib.rs"
+
+          [dependencies]
+          core-lib = { version = "3.11.4", path = "../core-lib", features = ["serde"] }
+
+          [dev-dependencies]
+          test-helper = { path = "../test-helper", version = "0.2" }
+
+          [target.'cfg(windows)'.dependencies]
+          windows-only = { version = "1", path = "../windows-only" }
+          '@
+
+          & "$env:GITHUB_WORKSPACE/build-php-extension/scripts/strip-internal-paths.ps1" $crateManifest
+
+          # `[lib] path` names a file inside the copy and must survive; every dependency
+          # path must go while its `version` stays, so cargo resolves it from the registry.
+          $expected = @(
+            '[package]',
+            'name = "fixture"',
+            'version = "0.1.0"',
+            '',
+            '[lib]',
+            'path = "src/lib.rs"',
+            '',
+            '[dependencies]',
+            'core-lib = { version = "3.11.4", features = ["serde"] }',
+            '',
+            '[dev-dependencies]',
+            'test-helper = {  version = "0.2" }',
+            '',
+            "[target.'cfg(windows)'.dependencies]",
+            'windows-only = { version = "1" }'
+          )
+          $actual = @(Get-Content -LiteralPath $crateManifest)
+
+          if (($actual -join "`n") -ne ($expected -join "`n")) {
+            Write-Host "--- expected ---"
+            $expected | ForEach-Object { Write-Host $_ }
+            Write-Host "--- actual ---"
+            $actual | ForEach-Object { Write-Host $_ }
+            throw "stripped manifest does not match the expected output"
           }
