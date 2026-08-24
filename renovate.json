@@ -18,6 +18,12 @@
       "description": "Group Python dependencies",
       "matchManagers": ["pep621"],
       "groupName": "python deps"
+    },
+    {
+      "description": "Pinned in install-wasi-sdk/action.yml: refs from 77d09f3 onward require a SHA-256 digest on the GitHub release asset, which wasi-sdk <= 25 does not have. Re-enable only when that action defaults to version >= 26.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["bytecodealliance/setup-wasi-sdk-action"],
+      "enabled": false
     }
   ]
 }

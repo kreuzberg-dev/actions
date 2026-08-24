@@ -18,6 +18,14 @@ runs:
         fi
 
     - name: Install WASI SDK
+      # ~keep Deliberately pinned, do not bump. From 77d09f3 ("verify WASI SDK download
+      # checksums") onward this action aborts unless the GitHub release asset exposes a
+      # SHA-256 `digest`, and it offers no opt-out. GitHub only populates that field for
+      # assets uploaded from ~2025-07 onward and never backfills older ones, so every
+      # wasi-sdk release <= 25 fails with:
+      #   Release asset 'wasi-sdk-25.0-x86_64-linux.tar.gz' does not have a valid SHA-256 digest
+      # Un-pin only together with raising the default `version` above to >= 26, the first
+      # release whose assets carry a digest. Renovate is disabled for this package.
       uses: bytecodealliance/setup-wasi-sdk-action@b2de090b44eb70013ee96b393727d473b35e1728
       with:
         version: ${{ inputs.version }}
