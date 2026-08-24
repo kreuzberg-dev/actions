@@ -4,9 +4,10 @@ description: |
   Fixes compiler env vars so host-native builds are not broken.
 inputs:
   version:
-    description: WASI SDK version to install
+    description: |
+      WASI SDK version to install. Must be >= 26 -- see the note on the install step below.
     required: false
-    default: "25"
+    default: "33"
 runs:
   using: composite
   steps:
@@ -18,7 +19,12 @@ runs:
         fi
 
     - name: Install WASI SDK
-      uses: bytecodealliance/setup-wasi-sdk-action@b2de090b44eb70013ee96b393727d473b35e1728
+      # ~keep This action verifies the release asset against its published SHA-256 digest and
+      # offers no opt-out, so `version` must stay >= 26. GitHub only populates the `digest`
+      # field for assets uploaded from ~2025-07 onward and never backfills older ones, so
+      # every wasi-sdk release <= 25 fails here with:
+      #   Release asset 'wasi-sdk-25.0-x86_64-linux.tar.gz' does not have a valid SHA-256 digest
+      uses: bytecodealliance/setup-wasi-sdk-action@77d09f3df1e8da344d8403cf8631af8977938b4c
       with:
         version: ${{ inputs.version }}
         github-token: ${{ github.token }}
