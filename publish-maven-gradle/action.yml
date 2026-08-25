@@ -59,7 +59,7 @@ runs:
   steps:
     - name: Set up JDK
       if: inputs.setup-java == 'true'
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v6
       with:
         java-version: ${{ inputs.java-version }}
         distribution: temurin

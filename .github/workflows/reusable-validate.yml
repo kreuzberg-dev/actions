@@ -276,7 +276,7 @@ jobs:
 
       - name: Set up Java
         if: ${{ inputs.setup-java }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
