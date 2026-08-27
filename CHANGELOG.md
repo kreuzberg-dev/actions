@@ -6,6 +6,13 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Changed
 
+- `reusable-validate` installs golangci-lint from its released binary instead of `go install`.
+  Resolving the module through `sum.golang.org` failed byte-identically across several days and
+  unrelated commits — the same two modules and the same tile paths every time — so it was a
+  deterministic failure, not a flake, and retrying never cleared it. The install script is fetched
+  at the immutable version tag (`v2.12.2` by default), never at a moving ref such as `master`,
+  so an upstream change cannot start running in every consumer's CI without review.
+
 - **BREAKING: `install-alef` no longer silently builds `main` when the pinned version has no release.**
   When the release archive was missing, the action fell back to `cargo install --tag v$version`, and when
   that failed too it fell back to `--branch main` with only an informational log line. Any repo pinning a
