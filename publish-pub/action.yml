@@ -37,9 +37,13 @@ runs:
   steps:
     - name: Set up Dart SDK
       if: inputs.setup-dart == 'true'
-      uses: dart-lang/setup-dart@v1
+      uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
       with:
         sdk: ${{ inputs.dart-version }}
+        # setup-dart registers its problem matcher at `$GITHUB_ACTION_PATH/dart-analyzer.json`.
+        # Nested in a composite action that path resolves to THIS action's directory, which has
+        # no such file, so the step dies and every publish step after it is skipped. ~keep
+        problem-matcher: "false"
 
     - name: Bundle native libraries
       shell: bash
