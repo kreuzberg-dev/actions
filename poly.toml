@@ -19,6 +19,8 @@ exclude = [
 ]
 
 [per-file-ignores]
+# A changelog grows one entry per release forever; length is the point, not a smell. ~keep
+"CHANGELOG.md" = ["file-too-long"]
 "**/scripts/**" = [
   "C901",
   "CPY001",
@@ -197,7 +199,7 @@ enabled = true
 enabled = true
 
 [hooks.pre-commit.commands.pyrefly]
-run = "pyrefly check . --project-excludes 'tests/**' --project-excludes '**/tests/**' --search-path build-csharp-natives/scripts --search-path build-elixir-natives/scripts --search-path build-java-natives/scripts --search-path publish-homebrew-source-formulas/scripts"
+run = "pyrefly check . --project-excludes 'tests/**' --project-excludes '**/tests/**' --search-path build-csharp-natives/scripts --search-path build-elixir-natives/scripts --search-path build-java-natives/scripts --search-path publish-homebrew-source-formulas/scripts --search-path publish-scoop-manifests/scripts"
 files = "**/*.py"
 exclude = ["tests/**", "**/tests/**"]
 workspace = true

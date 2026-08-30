@@ -81,6 +81,7 @@ to print the command without executing.
 | `publish-pub` | pub.dev | OIDC trusted publisher | Dart packages; requires a one-time pub.dev claim of the package |
 | `publish-zig` | Git tag | none | Validates `build.zig.zon` + tag; emits the tarball SHA-256 downstream consumers need for `build.zig.zon`'s `hash` field; can append a fetch snippet to the GH release notes. Optional `multi-platform-ffi-dir` bundles per-RID FFI libs + rewrites `build.zig` so a single tarball serves all supported targets |
 | `publish-homebrew-source-formulas` | Homebrew tap | `HOMEBREW_TOKEN` | Render source formulas from release assets |
+| `publish-scoop-manifests` | Scoop bucket | bot app token with write access to the bucket | Render Windows app manifests from the `*-pc-windows-msvc.zip` release assets |
 | `publish-github-release` | GitHub Releases | `GITHUB_TOKEN` | Release-asset uploads |
 | `publish-helm-chart` | OCI registry (GHCR, GAR, ECR, …) | username + password / token | Stamps `version`/`appVersion`, runs `helm dependency build` + `package` + `push`; idempotent on re-publish |
 
@@ -158,6 +159,7 @@ not step outputs: a composite action propagates only the outputs it declares, so
 | `test-install-task.yml` | Cross-platform smoke test for `install-task` |
 | `test-free-disk-space.yml` | Smoke test for disk cleanup |
 | `test-publish-actions.yml` | Publish action test workflow |
+| `test-publish-scoop-manifests.yml` | Dry-run render test for `publish-scoop-manifests` |
 | `test-setup-maven.yml` | Smoke test for Maven setup |
 | `test-setup-node-workspace.yml` | Smoke test for Node workspace setup |
 | `test-setup-openssl.yml` | Smoke test for OpenSSL setup |

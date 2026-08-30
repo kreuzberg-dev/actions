@@ -1,0 +1,104 @@
+name: Test publish-scoop-manifests
+on:
+  push:
+    paths:
+      - "publish-scoop-manifests/**"
+      - ".github/workflows/test-publish-scoop-manifests.yml"
+  pull_request:
+    paths:
+      - "publish-scoop-manifests/**"
+      - ".github/workflows/test-publish-scoop-manifests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Stage a tiny multi-app bucket + templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bucket-repo/bucket scripts/publish
+          cat >scripts/publish/cli.json.tmpl <<'TMPL'
+          {
+            "version": "${version}",
+            "homepage": "https://example.invalid/${tag}",
+            "architecture": {
+              "64bit": {
+                "url": "https://example.invalid/${tag}/cli-x86_64.zip",
+                "hash": "${win_x64_sha}",
+                "extract_dir": "cli-x86_64"
+              }
+            },
+            "bin": "cli.exe",
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://example.invalid/v$$version/cli-x86_64.zip"
+                }
+              }
+            }
+          }
+          TMPL
+          cat >scripts/publish/tool.json.tmpl <<'TMPL'
+          {
+            "version": "${version}",
+            "architecture": {
+              "64bit": {
+                "url": "https://example.invalid/${tag}/tool-x86_64.zip",
+                "hash": "${tool_x64_sha}"
+              }
+            },
+            "bin": "tool.exe"
+          }
+          TMPL
+          cat >scripts/publish/scoop.json <<'JSON'
+          {
+            "manifests": [
+              {
+                "name": "cli",
+                "template": "scripts/publish/cli.json.tmpl",
+                "assets": {"win_x64_sha": "cli-x86_64-pc-windows-msvc.zip"}
+              },
+              {
+                "name": "tool",
+                "template": "scripts/publish/tool.json.tmpl",
+                "assets": {"tool_x64_sha": "tool-${tag}-x86_64-pc-windows-msvc.zip"}
+              }
+            ]
+          }
+          JSON
+
+      - name: Render manifests via the action (dry-run)
+        id: render
+        uses: ./publish-scoop-manifests
+        with:
+          bucket-dir: bucket-repo
+          config-file: scripts/publish/scoop.json
+          tag: v9.9.9-dryrun
+          version: 9.9.9-dryrun
+          github-repo: ${{ github.repository }}
+          dry-run: "true"
+
+      - name: Verify both manifests rendered with placeholder SHAs
+        shell: bash
+        env:
+          MANIFESTS_CHANGED: ${{ steps.render.outputs.manifests-changed }}
+        run: |
+          set -euo pipefail
+          ls -la bucket-repo/bucket/
+          zero="0000000000000000000000000000000000000000000000000000000000000000"
+          for app in cli tool; do
+            manifest="bucket-repo/bucket/${app}.json"
+            test -f "$manifest"
+            jq -e '.version == "9.9.9-dryrun"' "$manifest" >/dev/null
+          done
+          jq -e --arg z "$zero" '.architecture["64bit"].hash == $z' bucket-repo/bucket/cli.json >/dev/null
+          jq -e --arg z "$zero" '.architecture["64bit"].hash == $z' bucket-repo/bucket/tool.json >/dev/null
+          # Scoop's own placeholder must survive templating unexpanded; an unescaped
+          # `$version` here would silently freeze autoupdate on this release.
+          jq -e '.autoupdate.architecture["64bit"].url == "https://example.invalid/v$version/cli-x86_64.zip"' \
+            bucket-repo/bucket/cli.json >/dev/null
+          test -n "${MANIFESTS_CHANGED}"

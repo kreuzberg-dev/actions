@@ -25,6 +25,26 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Added
 
+- **`publish-scoop-manifests` publishes Windows CLI manifests to a Scoop bucket.** New composite
+  action that renders Scoop app manifests from per-app templates, substituting the version, tag,
+  and the SHA256 of each Windows release asset, then writes them into a checked-out bucket. The
+  counterpart of `publish-homebrew-source-formulas`, and deliberately its near-twin so the two
+  stay easy to diff — same config/template split, same dry-run zero-SHA behaviour, same "the
+  caller commits" contract. Two differences matter. Rendered output is parsed as JSON before it
+  is written, so a template that renders malformed JSON fails the step instead of landing in the
+  bucket and breaking `scoop update` for every app in it, not just the one being published. And
+  Scoop's `autoupdate` blocks contain a literal `$version` that must be written `$$version` in
+  the template, because `string.Template` would otherwise substitute the current release's
+  version and silently freeze autoupdate on it.
+  (`publish-scoop-manifests/action.yml`, `publish-scoop-manifests/scripts/render.py`,
+  `publish-scoop-manifests/README.md`, `tests/test_publish_scoop_manifests.py`,
+  `.github/workflows/test-publish-scoop-manifests.yml`)
+
+- **`prepare-release-metadata` exposes `release_scoop`.** Consumer pipelines can gate a
+  Scoop-bucket publish job the way they already gate `publish-homebrew-formula` on
+  `release_homebrew`. Requires an alef build that recognises `scoop` as a release target.
+  (`prepare-release-metadata/action.yml`)
+
 - **`reusable-validate` can enforce fixture-backed documentation snippets.** Callers can opt in with
   `check-fixture-snippets: true`; the job installs `alef` through `install-alef@v1` (using the new
   `alef-version` input, default `latest`), generates configured E2E fixture snippets, fails on tracked

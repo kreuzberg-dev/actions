@@ -1,0 +1,111 @@
+name: Publish Scoop manifests
+description: >
+  Render one or more Scoop app manifests from per-app templates with
+  release-asset SHA256s + version + tag substituted in, and write them into a
+  checked-out Scoop bucket repository. The Windows counterpart of
+  publish-homebrew-source-formulas: manifests point straight at the prebuilt
+  `*-pc-windows-msvc.zip` release assets, so the only per-release work is
+  re-hashing those assets and bumping the version. Tolerant of dry-run
+  releases: when dry-run is set and a release/asset is missing, it substitutes
+  a zero-SHA placeholder and emits a warning so the rendered shape can still be
+  diffed.
+
+  The calling workflow is responsible for committing/pushing the resulting
+  bucket changes — bot identity is repo-specific.
+
+inputs:
+  bucket-dir:
+    description: "Path to a checked-out Scoop bucket repository (must contain bucket/)."
+    required: true
+  config-file:
+    description: >
+      Path (relative to the source repo) to a JSON config describing each
+      manifest: its template path, its release-asset filenames, and the
+      template variable name each SHA binds to. See README for the schema.
+    required: true
+  tag:
+    description: "Git tag for the release (e.g. v3.4.0-rc.42)."
+    required: true
+  version:
+    description: "Semantic version (e.g. 3.4.0-rc.42)."
+    required: true
+  github-repo:
+    description: "Source repository for `gh release download` (e.g. xberg-io/html-to-markdown)."
+    required: true
+  dry-run:
+    description: >
+      When 'true', tolerate missing release/assets (substitute zero-SHA
+      placeholders + warn) so dry-run pipelines can render and diff manifests
+      before the real release exists.
+    required: false
+    default: "false"
+  token:
+    description: "GitHub token with read access for `gh release download`."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  manifests-changed:
+    description: "Newline-separated list of manifest paths written into bucket-dir/bucket/."
+    value: ${{ steps.render.outputs.manifests-changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure gh CLI is available
+      uses: xberg-io/actions/ensure-gh@v1
+
+    - name: Render manifests
+      id: render
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        INPUT_BUCKET_DIR: ${{ inputs.bucket-dir }}
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_GITHUB_REPO: ${{ inputs.github-repo }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: python3 "${{ github.action_path }}/scripts/render.py"
+
+    - name: Validate rendered manifests
+      shell: bash
+      if: ${{ inputs.dry-run != 'true' }}
+      env:
+        VERSION: ${{ inputs.version }}
+        MANIFESTS_CHANGED: ${{ steps.render.outputs.manifests-changed }}
+      run: |
+        set -euo pipefail
+        echo "Validating rendered manifests declare version ${VERSION}..."
+        # Iterate only the manifests this action rendered — the bucket holds
+        # manifests owned by other repos (xberg, alef, ts-pack, ...) whose
+        # versions are independent and must not be checked here.
+        if [[ -z "${MANIFESTS_CHANGED}" ]]; then
+          echo "No manifests rendered; skipping validation."
+          exit 0
+        fi
+        while IFS= read -r manifest_file; do
+          [[ -z "$manifest_file" ]] && continue
+          if [[ ! -f "$manifest_file" ]]; then
+            echo "::error::Rendered manifest missing: $manifest_file"
+            exit 1
+          fi
+          app_name=$(basename "$manifest_file" .json)
+          # Parse rather than grep: this doubles as a JSON well-formedness check, which
+          # matters because a template that renders to invalid JSON still writes a file
+          # and would otherwise reach the bucket and break `scoop install` for everyone.
+          if ! jq -e --arg v "${VERSION}" '.version == $v' "$manifest_file" >/dev/null; then
+            echo "::error::Manifest $app_name is not valid JSON declaring version ${VERSION}"
+            cat "$manifest_file"
+            exit 1
+          fi
+          # A manifest whose hash is still the dry-run placeholder would make every
+          # `scoop install` fail its integrity check, so refuse to publish one.
+          if jq -e '[.. | objects | .hash? // empty] | any(. == "'"$(printf '0%.0s' {1..64})"'")' \
+            "$manifest_file" >/dev/null; then
+            echo "::error::Manifest $app_name still carries a zero-SHA placeholder"
+            cat "$manifest_file"
+            exit 1
+          fi
+          echo "✓ $app_name declares version ${VERSION}"
+        done <<< "${MANIFESTS_CHANGED}"

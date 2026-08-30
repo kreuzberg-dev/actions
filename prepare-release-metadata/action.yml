@@ -93,6 +93,9 @@ outputs:
   release_homebrew:
     value: ${{ steps.prepare.outputs.release_homebrew }}
     description: "Whether the homebrew target is enabled"
+  release_scoop:
+    value: ${{ steps.prepare.outputs.release_scoop }}
+    description: "Whether the scoop target is enabled"
   release_java:
     value: ${{ steps.prepare.outputs.release_java }}
     description: "Whether the java target is enabled"
