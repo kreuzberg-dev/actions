@@ -34,7 +34,7 @@ tasks:
   test:unit:
     desc: Run pytest unit tests
     cmds:
-      - uv run pytest tests/ -v
+      - uv run pytest -v
 
   test:act:
     desc: Run a specific test workflow locally (usage{{":"}} task test:act -- test-setup-rust.yml)

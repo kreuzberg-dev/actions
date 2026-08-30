@@ -26,7 +26,7 @@ git log --oneline origin/main -1  # confirm local main == remote tip
 
 poly fmt --check .                # formatting clean
 poly lint .                       # lint clean (also: task lint)
-task test                         # unit tests — runs `uv run pytest tests/ -v`
+task test                         # unit tests — runs `uv run pytest -v` across configured testpaths
 ```
 
 Do not proceed if the tree is dirty or any check fails. `task validate` (== `task lint`) runs actionlint + shellcheck + shfmt via poly; the action test workflows in `.github/workflows/test-*.yml` are the CI gate — they must be green on `main`.
