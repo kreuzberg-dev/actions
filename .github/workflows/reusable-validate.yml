@@ -55,7 +55,7 @@ on:
         description: "Go version for setup-go."
         required: false
         type: string
-        default: "stable"
+        default: "1.26"
       golangci-lint-version:
         description: "golangci-lint version to install (module path tag, e.g. v2.12.2)."
         required: false

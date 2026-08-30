@@ -16,6 +16,10 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Changed
 
+- `reusable-validate` defaults its optional Go toolchain to 1.26, matching the consumer workspaces
+  and preventing golangci-lint from type-checking against a newer standard library than the module
+  declares. Callers can still override `go-version` explicitly.
+
 - Type checking runs **pyrefly** instead of mypy, matching the pre-commit hook in `poly.toml`;
   the CI step now mirrors that hook's per-action `--search-path` list rather than looping mypy over
   each file. `[tool.mypy]` stays as the settings source pyrefly reads.
