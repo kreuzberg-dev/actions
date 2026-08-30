@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-08-30
+
 ### Fixed
 
 - **`free-disk-space-linux` preserves Docker-based actions prepared by the runner.** Cleanup no
