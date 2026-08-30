@@ -14,7 +14,9 @@ def test_non_arm_chrome_is_normalized_onto_path():
     assert upstream["id"] == "upstream"
     script = normalize["run"]
     assert "steps.upstream.outputs.chrome-path" in script
-    assert 'ln -sf "${chrome_path}" "${bin_dir}/google-chrome"' in script
+    assert 'printf \'exec %q "$@"\\n\' "${chrome_path}"' in script
+    assert 'chmod +x "${bin_dir}/google-chrome"' in script
+    assert "ln -sf" not in script
     assert 'echo "${bin_dir}" >>"$GITHUB_PATH"' in script
 
 
