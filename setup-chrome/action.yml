@@ -6,7 +6,7 @@ description: >
   non-default interfaces so headless launches do not race snap-store
   seeding or interface autoconnect. The install is followed by a blocking
   smoke test that fails fast if chromium cannot render `about:blank`.
-  On every other runner delegates to `browser-actions/setup-chrome@v1`
+  On every other runner delegates to `browser-actions/setup-chrome@v2`
   with the requested channel/version.
 
 inputs:
@@ -14,6 +14,11 @@ inputs:
     description: "Chrome channel (`stable`, `beta`, `dev`) or an explicit Chrome-for-Testing version. Ignored on linux-arm64, where the latest stable chromium snap is installed."
     required: false
     default: "stable"
+
+outputs:
+  chrome-path:
+    description: "Absolute path to the installed Chrome-compatible browser."
+    value: ${{ steps.normalize.outputs.chrome-path }}
 
 runs:
   using: composite
@@ -126,7 +131,28 @@ runs:
         echo "chromium snap installed and smoke-tested successfully on linux-arm64"
 
     - name: Setup Chrome (non-arm64)
+      id: upstream
       if: steps.detect.outputs.linux_arm64 != 'true'
       uses: browser-actions/setup-chrome@v2
       with:
         chrome-version: ${{ inputs.chrome-version }}
+
+    - name: Normalize Chrome executable
+      id: normalize
+      shell: bash
+      run: |
+        set -euo pipefail
+        chrome_path="${{ steps.upstream.outputs.chrome-path }}"
+        if [[ -z "${chrome_path}" ]]; then
+          chrome_path="$(command -v chromium || command -v google-chrome || command -v chrome)"
+        fi
+        if [[ ! -x "${chrome_path}" ]]; then
+          echo "::error::installed Chrome executable is missing or not executable: ${chrome_path}" >&2
+          exit 1
+        fi
+
+        bin_dir="${RUNNER_TEMP}/xberg-chrome-bin"
+        mkdir -p "${bin_dir}"
+        ln -sf "${chrome_path}" "${bin_dir}/google-chrome"
+        echo "${bin_dir}" >>"$GITHUB_PATH"
+        echo "chrome-path=${chrome_path}" >>"$GITHUB_OUTPUT"
