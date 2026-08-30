@@ -15,17 +15,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Record initial disk space
-        run: df -h /
-
       - name: Pull image that must survive cleanup
         run: docker pull alpine:3.23
+
+      - name: Record initial disk space
+        run: |
+          df -h /
+          echo "AVAILABLE_BEFORE_BYTES=$(df --output=avail -B1 / | tail -1)" >> "$GITHUB_ENV"
 
       - name: Free disk space
         uses: ./free-disk-space-linux
 
       - name: Verify disk space freed
-        run: df -h /
+        run: |
+          MIN_RECLAIMED_BYTES=$((512 * 1024 * 1024))
+          AVAILABLE_AFTER_BYTES=$(df --output=avail -B1 / | tail -1)
+          RECLAIMED_BYTES=$((AVAILABLE_AFTER_BYTES - AVAILABLE_BEFORE_BYTES))
+          df -h /
+          if (( RECLAIMED_BYTES < MIN_RECLAIMED_BYTES )); then
+            echo "expected cleanup to reclaim at least ${MIN_RECLAIMED_BYTES} bytes; reclaimed ${RECLAIMED_BYTES}" >&2
+            exit 1
+          fi
 
       - name: Verify prepared Docker action images survive cleanup
         run: docker image inspect alpine:3.23
