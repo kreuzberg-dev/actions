@@ -6,6 +6,11 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Fixed
 
+- **`free-disk-space-linux` preserves Docker-based actions prepared by the runner.** Cleanup no
+  longer runs `docker system prune`, which could delete the already-pulled cargo-deny action image
+  before its step executed. It still removes stopped containers, unused networks and volumes, and
+  builder cache without pruning images.
+
 - **CI now runs the per-action test suites it had been silently skipping.** `testpaths` listed only
   the root `tests/`, and the workflow passed `pytest tests/` explicitly, which overrides `testpaths`
   anyway — so the 63 tests under `check-r-package/`, `publish-github-release/` and

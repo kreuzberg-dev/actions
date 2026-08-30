@@ -18,11 +18,17 @@ jobs:
       - name: Record initial disk space
         run: df -h /
 
+      - name: Pull image that must survive cleanup
+        run: docker pull alpine:3.23
+
       - name: Free disk space
         uses: ./free-disk-space-linux
 
       - name: Verify disk space freed
         run: df -h /
+
+      - name: Verify prepared Docker action images survive cleanup
+        run: docker image inspect alpine:3.23
 
       # Regression guard: the cleanup used to delete /usr/local/lib/node_modules, which left
       # /usr/local/bin/npm as a dangling symlink. `npm` stayed on PATH and every call failed with

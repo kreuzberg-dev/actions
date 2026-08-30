@@ -25,7 +25,12 @@ sudo apt-get clean || true
 sudo rm -rf /var/lib/apt/lists/* || true
 
 echo "=== Cleaning Docker ==="
-docker system prune -af --volumes || true
+# ~keep GitHub prepares Docker-based actions before their step runs. Image/system prune can
+# delete those prepared images, so a later cargo-deny action fails even though setup succeeded.
+# Reclaim stopped containers, unused networks, volumes, and build cache without touching images.
+docker container prune -f || true
+docker network prune -f || true
+docker volume prune -f || true
 docker builder prune -af || true
 
 echo "=== Cleaning journalctl logs ==="
