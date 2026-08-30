@@ -4,6 +4,17 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-08-30
+
+### Fixed
+
+- The `validate-versions` action workflow now exercises Alef's current workspace/crate schema and
+  proves that a real manifest-version mismatch fails instead of accepting a vacuous smoke test.
+- `setup-chrome` now exposes `chrome-path` and adds a stable `google-chrome` alias to `PATH` on
+  every platform, including macOS installations whose application binary is not on `PATH`.
+- `verify-release-assets` now honors an explicit `GH_REPO` override before the calling workflow's
+  `GITHUB_REPOSITORY`; its workflow verifies the current immutable Alef `v0.79.2` release.
+
 ## [1.10.0] - 2026-08-30
 
 ### Fixed
