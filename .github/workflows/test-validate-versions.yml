@@ -28,13 +28,11 @@ jobs:
           {"name": "fixture", "version": "1.2.3"}
           JSON
           cat >alef.toml <<'TOML'
-          [project]
-          name = "fixture"
-          version = "1.2.3"
+          [workspace]
+          languages = ["node"]
 
-          [manifests]
-          cargo = "Cargo.toml"
-          npm = "package.json"
+          [[crates]]
+          name = "fixture"
           TOML
 
       - name: Validate matching versions (expect success)
@@ -43,13 +41,12 @@ jobs:
         with:
           alef-version: latest
 
-      - name: Confirm valid=true (or skipped because alef saw no manifests)
+      - name: Confirm matching manifest was accepted
         shell: bash
         env:
           VALID: ${{ steps.ok.outputs.valid }}
         run: |
-          # The action reports valid=true on a clean fixture or when no
-          # manifests are configured; both prove it ran without error.
+          # The mismatch job below proves this fixture shape discovers package.json.
           if [[ "${VALID}" != "true" ]]; then
             echo "expected valid=true, got valid=${VALID}"
             exit 1
@@ -63,8 +60,6 @@ jobs:
       - name: Stage mismatch fixture
         shell: bash
         run: |
-          mkdir -p _fixture/mismatch
-          cd _fixture/mismatch
           cat >Cargo.toml <<'TOML'
           [workspace]
           members = []
@@ -75,13 +70,11 @@ jobs:
           {"name": "fixture", "version": "9.9.9"}
           JSON
           cat >alef.toml <<'TOML'
-          [project]
-          name = "fixture"
-          version = "1.2.3"
+          [workspace]
+          languages = ["node"]
 
-          [manifests]
-          cargo = "Cargo.toml"
-          npm = "package.json"
+          [[crates]]
+          name = "fixture"
           TOML
 
       - name: Validate mismatched versions (expect failure)
@@ -91,15 +84,12 @@ jobs:
         with:
           alef-version: latest
 
-      - name: Confirm action ran (success or failure outcome — both prove plumbing)
+      - name: Confirm mismatch was rejected
         shell: bash
         env:
           OUTCOME: ${{ steps.bad.outcome }}
         run: |
-          # alef may not detect the fixture (no alef.toml in repo root) and
-          # report valid=true. Either outcome proves the action ran end-to-end
-          # without breaking — what we are smoke-testing here.
-          case "${OUTCOME}" in
-            success|failure) echo "ok: outcome=${OUTCOME}" ;;
-            *) echo "unexpected outcome: ${OUTCOME}"; exit 1 ;;
-          esac
+          if [[ "${OUTCOME}" != "failure" ]]; then
+            echo "expected mismatch validation to fail, got outcome=${OUTCOME}"
+            exit 1
+          fi

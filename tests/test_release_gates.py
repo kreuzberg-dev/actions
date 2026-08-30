@@ -26,3 +26,13 @@ def test_unit_workflow_runs_when_reusable_validate_changes():
         paths = triggers[event]["paths"]
         assert workflow_path in paths
         assert "Taskfile.yml" in paths
+
+
+def test_validate_versions_workflow_uses_current_alef_schema():
+    workflow = (_ROOT / ".github" / "workflows" / "test-validate-versions.yml").read_text()
+
+    assert "[manifests]" not in workflow
+    assert workflow.count("[[crates]]") == 2
+    assert workflow.count('languages = ["node"]') == 2
+    assert "_fixture/mismatch" not in workflow
+    assert 'if [[ "${OUTCOME}" != "failure" ]]; then' in workflow
