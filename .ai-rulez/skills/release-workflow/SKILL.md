@@ -9,7 +9,7 @@ This repo publishes reusable composite actions and workflows consumed by every o
 
 ## Tag scheme
 
-- **Immutable version tags** — `vX.Y.Z` (annotated). Never re-pointed once pushed. Latest at time of writing: `v1.10.1`.
+- **Immutable version tags** — `vX.Y.Z` (annotated). Never re-pointed once pushed. Latest at time of writing: `v1.10.2`.
 - **Floating major tag** — `v1` (annotated). Deliberately force-updated on every release to point at the newest release commit. This is the ref consumers pin.
 
 Both are annotated tag objects (`git cat-file -t v1` → `tag`), so create/move them with `-a`.

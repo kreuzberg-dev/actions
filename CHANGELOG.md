@@ -4,6 +4,13 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-08-30
+
+### Fixed
+
+- `setup-chrome` now creates a PATH wrapper instead of a symlink, preserving macOS Chrome's
+  application-bundle-relative framework lookup while keeping the cross-platform alias.
+
 ## [1.10.1] - 2026-08-30
 
 ### Fixed
