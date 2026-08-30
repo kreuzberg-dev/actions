@@ -4,6 +4,26 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI now runs the per-action test suites it had been silently skipping.** `testpaths` listed only
+  the root `tests/`, and the workflow passed `pytest tests/` explicitly, which overrides `testpaths`
+  anyway — so the 63 tests under `check-r-package/`, `publish-github-release/` and
+  `publish-r-package/` never ran. That is how `test_upload_artifacts` kept asserting an exit code
+  the script had stopped returning. Collection needs `--import-mode=importlib`, because every
+  `tests/` directory has an `__init__.py` and they otherwise all resolve to the same `tests`
+  package. (`pyproject.toml`, `.github/workflows/test-unit.yml`)
+
+### Changed
+
+- Type checking runs **pyrefly** instead of mypy, matching the pre-commit hook in `poly.toml`;
+  the CI step now mirrors that hook's per-action `--search-path` list rather than looping mypy over
+  each file. `[tool.mypy]` stays as the settings source pyrefly reads.
+  (`.github/workflows/test-unit.yml`, `pyproject.toml`, `README.md`)
+
+- `test_upload_artifacts.py` converted from `unittest.TestCase` classes to pytest functions,
+  matching `test_ensure_release.py`. (`publish-github-release/tests/test_upload_artifacts.py`)
+
 ## [1.9.0] - 2026-08-30
 
 ### Changed

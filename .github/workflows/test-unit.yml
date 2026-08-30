@@ -5,12 +5,14 @@ on:
     paths:
       - "**/scripts/**"
       - "tests/**"
+      - "**/tests/**"
       - "pyproject.toml"
       - ".github/workflows/test-unit.yml"
   pull_request:
     paths:
       - "**/scripts/**"
       - "tests/**"
+      - "**/tests/**"
       - "pyproject.toml"
       - ".github/workflows/test-unit.yml"
 
@@ -25,8 +27,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      # No explicit path: an argument overrides `testpaths`, which is how the per-action
+      # tests/ directories went uncollected for so long.
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: uv run pytest -v
 
   lint:
     runs-on: ubuntu-latest
@@ -44,12 +48,18 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
-      - name: Mypy
+      # Mirrors the pyrefly pre-commit hook in poly.toml, including the per-action
+      # search paths that let sibling-module imports (e.g. musl_builder) resolve.
+      - name: Pyrefly
         run: |
-          find . -path '*/scripts/*.py' -not -path './.venv/*' -not -name '__init__.py' | sort | while read -r f; do
-            echo "Checking $f..."
-            uv run mypy "$f"
-          done
+          uv run pyrefly check . \
+            --project-excludes 'tests/**' \
+            --project-excludes '**/tests/**' \
+            --search-path build-csharp-natives/scripts \
+            --search-path build-elixir-natives/scripts \
+            --search-path build-java-natives/scripts \
+            --search-path publish-homebrew-source-formulas/scripts \
+            --search-path publish-scoop-manifests/scripts
 
   actionlint:
     runs-on: ubuntu-latest

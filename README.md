@@ -244,4 +244,4 @@ task test
 task lint
 ```
 
-All action scripts are Python 3.10+ with full pytest coverage, ruff linting, and mypy strict type checking.
+All action scripts are Python 3.10+ with full pytest coverage, ruff linting, and pyrefly type checking.

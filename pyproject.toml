@@ -16,7 +16,7 @@ classifiers = [
 ]
 
 [dependency-groups]
-dev = ["mypy>=2.3.0", "pytest>=9.1.1", "pytest-mock>=3.15.1", "pyyaml>=6.0.3", "ruff>=0.15.22", "tomlkit>=0.15.1"]
+dev = ["pyrefly>=1.2.0", "pytest>=9.1.1", "pytest-mock>=3.15.1", "pyyaml>=6.0.3", "ruff>=0.15.22", "tomlkit>=0.15.1"]
 
 [tool.hatch]
 build.targets.wheel.packages = ["scripts"]
@@ -114,5 +114,11 @@ strict = true
 namespace_packages = true
 
 [tool.pytest]
-ini_options.testpaths = ["tests"]
+# Per-action tests/ directories are listed explicitly. They used to be invisible to CI, which is
+# how test_upload_artifacts kept asserting an exit code the script had stopped returning. ~keep
+ini_options.testpaths = ["tests", "check-r-package/tests", "publish-github-release/tests", "publish-r-package/tests"]
 ini_options.norecursedirs = ["dist", "build", "*.egg"]
+# Every tests/ dir carries an __init__.py, so under the default import mode they all resolve to
+# the same `tests` package and only the root one is importable. importlib mode keys modules by
+# path instead, which is what lets the per-action directories above be collected at all. ~keep
+ini_options.addopts = "--import-mode=importlib"
