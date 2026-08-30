@@ -311,14 +311,32 @@ class TestMain(unittest.TestCase):
             "GITHUB_REPOSITORY": "owner/repo",
         },
     )
-    def test_main_no_artifacts_matched_exits_cleanly(self, mock_get_release) -> None:
-        """Test no artifacts matched results in clean exit without API call."""
-        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+    def test_main_no_artifacts_matched_fails_closed(self, mock_get_release) -> None:
+        """An empty match exits 1: a green upload job with zero assets is worse than a red one."""
+        with patch("sys.stderr", new=StringIO()) as mock_stderr:
             with pytest.raises(SystemExit) as ctx:
                 upload_artifacts.main()
-            assert ctx.value.code == 0
-            output = mock_stdout.getvalue()
-            assert "No artifact files matched" in output
+            assert ctx.value.code == 1
+            assert "no files matched artifact pattern(s)" in mock_stderr.getvalue()
+
+        mock_get_release.assert_not_called()
+
+    @patch("upload_artifacts.get_release_by_tag")
+    @patch.dict(
+        "os.environ",
+        {
+            "INPUT_TAG": "v1.0.0",
+            "INPUT_ARTIFACTS": "nonexistent/*.xyz",
+            "INPUT_FAIL_IF_EMPTY": "false",
+            "GH_TOKEN": "token123",
+            "GITHUB_REPOSITORY": "owner/repo",
+        },
+    )
+    def test_main_no_artifacts_matched_skips_when_opted_out(self, mock_get_release) -> None:
+        """fail-if-empty: 'false' is the documented escape hatch for an expected empty match."""
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            upload_artifacts.main()
+            assert "::warning::" in mock_stdout.getvalue()
 
         mock_get_release.assert_not_called()
 

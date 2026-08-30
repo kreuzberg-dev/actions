@@ -232,6 +232,61 @@ def parse_max_attempts(raw: str) -> int:
     return value
 
 
+def _run_checks(
+    env: dict[str, str],
+    wait_module: ModuleType,
+    *,
+    mode: str,
+    declared: list[str],
+    manifest_path: Path,
+    version: str,
+) -> tuple[int, int, list[str]]:
+    """Run the configured checks. Returns (examined, resolved, problems)."""
+    examined = 0
+    resolved = 0
+    problems: list[str] = []
+
+    if mode in ("binaries", "both"):
+        configured_root = env.get("INPUT_PLATFORM_DIR", "").strip()
+        platform_root = Path(configured_root) if configured_root else manifest_path.parent / DEFAULT_PLATFORM_SUBDIR
+        examined, binary_problems = verify_binaries(declared, platform_root, version)
+        problems.extend(binary_problems)
+        if examined != len(declared):
+            problems.append(f"examined {examined} platform directories but {len(declared)} are declared")
+
+    if mode in ("registry", "both"):
+        max_attempts = parse_max_attempts(env.get("INPUT_MAX_ATTEMPTS", "").strip())
+        registry = env.get("INPUT_REGISTRY", "").strip() or DEFAULT_REGISTRY
+        resolved, registry_problems = verify_registry(declared, version, registry, max_attempts, wait_module)
+        problems.extend(registry_problems)
+        if resolved != len(declared):
+            problems.append(f"resolved {resolved} packages but {len(declared)} are declared")
+
+    return examined, resolved, problems
+
+
+def _print_summary(
+    parent_name: str,
+    version: str,
+    mode: str,
+    *,
+    declared: list[str],
+    expected_count: int,
+    examined: int,
+    resolved: int,
+    errors: list[str],
+) -> None:
+    print(f"::group::Verification summary — {parent_name}@{version} (mode: {mode})")
+    print(f"Declared: {len(declared)}")
+    print(f"Expected: {expected_count}")
+    print(f"Examined (platform directories): {examined}")
+    print(f"Resolved (registry): {resolved}")
+    print(f"Errors: {len(errors)}")
+    for problem in errors:
+        print(f"  - {problem}")
+    print("::endgroup::")
+
+
 def run(env: dict[str, str], wait_module: ModuleType) -> int:
     """Execute the verification described by ``env`` and return a process exit code."""
     mode = env.get("INPUT_MODE", "registry").strip() or "registry"
@@ -273,30 +328,26 @@ def run(env: dict[str, str], wait_module: ModuleType) -> int:
     examined = 0
     resolved = 0
     if declared and not errors:
-        if mode in ("binaries", "both"):
-            configured_root = env.get("INPUT_PLATFORM_DIR", "").strip()
-            platform_root = Path(configured_root) if configured_root else manifest_path.parent / DEFAULT_PLATFORM_SUBDIR
-            examined, binary_problems = verify_binaries(declared, platform_root, version)
-            errors.extend(binary_problems)
-            if examined != len(declared):
-                errors.append(f"examined {examined} platform directories but {len(declared)} are declared")
-        if mode in ("registry", "both"):
-            max_attempts = parse_max_attempts(env.get("INPUT_MAX_ATTEMPTS", "").strip())
-            registry = env.get("INPUT_REGISTRY", "").strip() or DEFAULT_REGISTRY
-            resolved, registry_problems = verify_registry(declared, version, registry, max_attempts, wait_module)
-            errors.extend(registry_problems)
-            if resolved != len(declared):
-                errors.append(f"resolved {resolved} packages but {len(declared)} are declared")
+        examined, resolved, problems = _run_checks(
+            env,
+            wait_module,
+            mode=mode,
+            declared=declared,
+            manifest_path=manifest_path,
+            version=version,
+        )
+        errors.extend(problems)
 
-    print(f"::group::Verification summary — {parent_name}@{version} (mode: {mode})")
-    print(f"Declared: {len(declared)}")
-    print(f"Expected: {expected_count}")
-    print(f"Examined (platform directories): {examined}")
-    print(f"Resolved (registry): {resolved}")
-    print(f"Errors: {len(errors)}")
-    for problem in errors:
-        print(f"  - {problem}")
-    print("::endgroup::")
+    _print_summary(
+        parent_name,
+        version,
+        mode,
+        declared=declared,
+        expected_count=expected_count,
+        examined=examined,
+        resolved=resolved,
+        errors=errors,
+    )
 
     write_outputs(
         {

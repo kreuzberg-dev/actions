@@ -121,6 +121,65 @@ def _locate_dep(dep: str, basename: str, search_roots: list[Path]) -> Path | Non
     return None
 
 
+def _macos_search_roots() -> list[Path]:
+    """Where basename-only @rpath deps may have been staged by the toolchain."""
+    search_roots: list[Path] = []
+    ort_lib_location = os.environ.get("ORT_LIB_LOCATION")
+    if ort_lib_location:
+        search_roots.append(Path(ort_lib_location))
+    search_roots.append(Path("/tmp/xberg-heif/lib"))  # noqa: S108 — fixed CI prefix from build-macos-heif-deps.sh
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        search_roots.append(Path(xdg_cache) / "ort.pyke.io" / "dfbin")
+    home = Path.home()
+    search_roots.extend(
+        [
+            home / ".cache" / "ort.pyke.io" / "dfbin",
+            home / "Library" / "Caches" / "ort.pyke.io" / "dfbin",
+        ]
+    )
+    return search_roots
+
+
+def _stage_macos_dep(dep: str, basename: str, staging_dir: Path, search_roots: list[Path], binary_name: str) -> Path:
+    """Copy one runtime dep beside the staged lib, exiting 1 if it cannot be vendored safely."""
+    dest = staging_dir / basename
+    if dest.exists():
+        return dest
+
+    source = _locate_dep(dep, basename, search_roots)
+    if source is None:
+        print(
+            f"[build-csharp-natives] error: could not locate runtime dep {dep} for {binary_name}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if str(source).startswith(("/opt/homebrew/", "/usr/local/")):
+        print(
+            f"[build-csharp-natives] error: refusing to vendor Homebrew dylib {source} "
+            "(would raise the macOS floor); build the closure from source at the "
+            "deployment target instead",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    shutil.copy2(source, dest)
+    dest.chmod(dest.stat().st_mode | 0o200)
+    print(f"[build-csharp-natives] staged runtime dep: {dest.resolve()}")
+    return dest
+
+
+def _assert_no_unvendored_deps(staging_dir: Path) -> None:
+    """Fail loudly if any vendorable dep still leaks anywhere in the closure."""
+    leaks = 0
+    for dylib in sorted(staging_dir.glob("*.dylib")):
+        for dep in _macho_deps(dylib):
+            if _is_vendorable(dep):
+                print(f"[build-csharp-natives] error: unvendored dep {dylib.name} -> {dep}", file=sys.stderr)
+                leaks += 1
+    if leaks:
+        sys.exit(1)
+
+
 def copy_macos_runtime_deps(staged_lib: Path, staging_dir: Path) -> None:
     """Vendor a macOS dylib's non-system closure beside it and rewrite load commands.
 
@@ -148,21 +207,7 @@ def copy_macos_runtime_deps(staged_lib: Path, staging_dir: Path) -> None:
 
     # @rpath refs are basename-only, so search where the toolchain stages them:
     # ORT_LIB_LOCATION (setup-onnx-runtime), the macOS heif prefix, the ORT cache.
-    search_roots: list[Path] = []
-    ort_lib_location = os.environ.get("ORT_LIB_LOCATION")
-    if ort_lib_location:
-        search_roots.append(Path(ort_lib_location))
-    search_roots.append(Path("/tmp/xberg-heif/lib"))  # noqa: S108 — fixed CI prefix from build-macos-heif-deps.sh
-    xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache:
-        search_roots.append(Path(xdg_cache) / "ort.pyke.io" / "dfbin")
-    home = Path.home()
-    search_roots.extend(
-        [
-            home / ".cache" / "ort.pyke.io" / "dfbin",
-            home / "Library" / "Caches" / "ort.pyke.io" / "dfbin",
-        ]
-    )
+    search_roots = _macos_search_roots()
 
     seen: set[str] = {staged_lib.name}
     queue: list[Path] = [staged_lib]
@@ -175,26 +220,7 @@ def copy_macos_runtime_deps(staged_lib: Path, staging_dir: Path) -> None:
             if not _is_vendorable(dep):
                 continue
             basename = dep.rsplit("/", 1)[-1]
-            dest = staging_dir / basename
-            if not dest.exists():
-                source = _locate_dep(dep, basename, search_roots)
-                if source is None:
-                    print(
-                        f"[build-csharp-natives] error: could not locate runtime dep {dep} for {binary.name}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-                if str(source).startswith(("/opt/homebrew/", "/usr/local/")):
-                    print(
-                        f"[build-csharp-natives] error: refusing to vendor Homebrew dylib {source} "
-                        "(would raise the macOS floor); build the closure from source at the "
-                        "deployment target instead",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-                shutil.copy2(source, dest)
-                dest.chmod(dest.stat().st_mode | 0o200)
-                print(f"[build-csharp-natives] staged runtime dep: {dest.resolve()}")
+            dest = _stage_macos_dep(dep, basename, staging_dir, search_roots, binary.name)
             subprocess.run(
                 ["install_name_tool", "-change", dep, f"@loader_path/{basename}", str(binary)],
                 capture_output=True,
@@ -216,15 +242,7 @@ def copy_macos_runtime_deps(staged_lib: Path, staging_dir: Path) -> None:
         if changed:
             _resign(binary)
 
-    # Guard: fail loudly if any vendorable dep still leaks anywhere in the closure.
-    leaks = 0
-    for dylib in sorted(staging_dir.glob("*.dylib")):
-        for dep in _macho_deps(dylib):
-            if _is_vendorable(dep):
-                print(f"[build-csharp-natives] error: unvendored dep {dylib.name} -> {dep}", file=sys.stderr)
-                leaks += 1
-    if leaks:
-        sys.exit(1)
+    _assert_no_unvendored_deps(staging_dir)
 
 
 def _is_base_linux_lib(basename: str) -> bool:
@@ -274,6 +292,51 @@ def _ldd_deps(binary: Path) -> list[str]:
     return deps
 
 
+def _require_linux_tooling() -> None:
+    for tool, purpose in (("patchelf", "set RUNPATH"), ("ldd", "resolve runtime deps")):
+        if not shutil.which(tool):
+            print(f"[build-csharp-natives] error: {tool} unavailable; cannot {purpose}", file=sys.stderr)
+            sys.exit(1)
+
+
+def _stage_linux_closure(source_lib: Path, staging_dir: Path) -> set[str]:
+    """Copy the transitive vendorable closure beside the staged lib. Returns unresolved deps."""
+    seen: set[str] = {source_lib.name}
+    unresolved: set[str] = set()
+    queue: list[Path] = [source_lib]
+    while queue:
+        current = queue.pop(0)
+        for dep in _ldd_deps(current):
+            basename = Path(dep).name
+            if basename in seen or _is_base_linux_lib(basename):
+                continue
+            seen.add(basename)
+            source = Path(dep)
+            if not source.is_file():
+                unresolved.add(dep)
+                continue
+            dest = staging_dir / basename
+            if not dest.exists():
+                shutil.copy2(source, dest)
+                dest.chmod(dest.stat().st_mode | 0o200)
+                print(f"[build-csharp-natives] staged runtime dep: {dest.resolve()}")
+            queue.append(source)
+    return unresolved
+
+
+def _set_origin_runpath(staged_lib: Path) -> None:
+    rpath = subprocess.run(
+        ["patchelf", "--set-rpath", "$ORIGIN", str(staged_lib)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if rpath.returncode != 0:
+        print(f"[build-csharp-natives] error: patchelf --set-rpath failed: {rpath.stderr}", file=sys.stderr)
+        sys.exit(1)
+    print(f"[build-csharp-natives] set RUNPATH=$ORIGIN on {staged_lib.resolve()}")
+
+
 def copy_linux_runtime_deps(source_lib: Path, staging_dir: Path) -> None:
     """Bundle a Linux .so's vendored deps and point its RUNPATH at ``$ORIGIN``.
 
@@ -300,40 +363,9 @@ def copy_linux_runtime_deps(source_lib: Path, staging_dir: Path) -> None:
     """
     if not source_lib.name.endswith(".so"):
         return
-    if not shutil.which("patchelf"):
-        print(
-            "[build-csharp-natives] error: patchelf unavailable; cannot set RUNPATH",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if not shutil.which("ldd"):
-        print(
-            "[build-csharp-natives] error: ldd unavailable; cannot resolve runtime deps",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    _require_linux_tooling()
 
-    seen: set[str] = {source_lib.name}
-    unresolved: set[str] = set()
-    queue: list[Path] = [source_lib]
-    while queue:
-        current = queue.pop(0)
-        for dep in _ldd_deps(current):
-            basename = Path(dep).name
-            if basename in seen or _is_base_linux_lib(basename):
-                continue
-            seen.add(basename)
-            source = Path(dep)
-            if not source.is_file():
-                unresolved.add(dep)
-                continue
-            dest = staging_dir / basename
-            if not dest.exists():
-                shutil.copy2(source, dest)
-                dest.chmod(dest.stat().st_mode | 0o200)
-                print(f"[build-csharp-natives] staged runtime dep: {dest.resolve()}")
-            queue.append(source)
-
+    unresolved = _stage_linux_closure(source_lib, staging_dir)
     if unresolved:
         for dep in sorted(unresolved):
             print(
@@ -342,20 +374,7 @@ def copy_linux_runtime_deps(source_lib: Path, staging_dir: Path) -> None:
             )
         sys.exit(1)
 
-    staged_lib = staging_dir / source_lib.name
-    rpath = subprocess.run(
-        ["patchelf", "--set-rpath", "$ORIGIN", str(staged_lib)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if rpath.returncode != 0:
-        print(
-            f"[build-csharp-natives] error: patchelf --set-rpath failed: {rpath.stderr}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    print(f"[build-csharp-natives] set RUNPATH=$ORIGIN on {staged_lib.resolve()}")
+    _set_origin_runpath(staging_dir / source_lib.name)
 
 
 def copy_windows_runtime_deps(staged_lib: Path, staging_dir: Path) -> None:

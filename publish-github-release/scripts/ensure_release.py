@@ -14,6 +14,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+# A freshly pushed tag is not immediately visible to the releases API, so creation
+# waits up to a minute for it rather than failing the release outright. ~keep
+MAX_TAG_WAIT_ATTEMPTS = 12
+TAG_WAIT_INTERVAL_SECONDS = 5
+
 
 def get_github_api_headers(token: str) -> dict[str, str]:
     """Return headers for GitHub REST API v2022-11-28."""
@@ -156,6 +161,79 @@ def list_releases(owner: str, repo: str, token: str, per_page: int = 30) -> list
     return data if isinstance(data, list) else []
 
 
+def _repair_tag_name(
+    owner: str, repo: str, release: dict[str, Any], tag: str, token: str, *, success_message: str = ""
+) -> None:
+    """PATCH a release whose tag_name drifted from `tag`. Exits 1 if the repair does not stick.
+
+    The API can return a release with a placeholder `untagged-*` tag_name, and a release whose
+    tag_name is wrong is invisible to every later lookup by tag, so a failed repair must stop
+    the pipeline rather than let downstream jobs chase a release they will never find. ~keep
+    """
+    release_id = int(release.get("id", 0))
+    repaired = update_release(owner, repo, release_id, tag_name=tag, token=token)
+    if repaired.get("tag_name") != tag:
+        print(
+            f"Error: PATCH to fix tag_name failed; release still has tag_name={repaired.get('tag_name')}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(success_message or f"Repaired tag_name to {tag}")
+
+
+def _print_dry_run(tag: str, title: str, *, generate_notes: bool, draft: bool, prerelease: bool, target: str) -> None:
+    print(f"[dry-run] Would create/ensure release for tag: {tag}")
+    print(f"  Title: {title}")
+    print(f"  Generate notes: {generate_notes}")
+    print(f"  Draft: {draft}")
+    print(f"  Pre-release: {prerelease}")
+    if target:
+        print(f"  Target: {target}")
+
+
+def _reconcile_existing(owner: str, repo: str, existing: dict[str, Any], tag: str, token: str, *, draft: bool) -> None:
+    print(f"Release {tag} already exists")
+    if existing.get("tag_name", "") != tag:
+        print(
+            f"Warning: release has tag_name={existing.get('tag_name', '')}, expected {tag}; repairing...",
+            file=sys.stderr,
+        )
+        _repair_tag_name(owner, repo, existing, tag, token)
+
+    if existing.get("draft", False) and not draft:
+        print(f"Publishing draft release {tag}...")
+        update_release(owner, repo, int(existing.get("id", 0)), draft=False, token=token)
+
+
+def _wait_for_tag(owner: str, repo: str, tag: str, token: str) -> None:
+    """Block until the tag is visible on the remote, or exit 1."""
+    for attempt in range(1, MAX_TAG_WAIT_ATTEMPTS + 1):
+        if tag_exists_on_git(owner, repo, tag, token):
+            return
+        if attempt < MAX_TAG_WAIT_ATTEMPTS:
+            print(
+                f"Tag {tag} not visible yet ({attempt}/{MAX_TAG_WAIT_ATTEMPTS}); "
+                f"retrying in {TAG_WAIT_INTERVAL_SECONDS}s...",
+                file=sys.stderr,
+            )
+            time.sleep(TAG_WAIT_INTERVAL_SECONDS)
+
+    print(
+        f"Error: Tag {tag} not found on remote after {MAX_TAG_WAIT_ATTEMPTS * TAG_WAIT_INTERVAL_SECONDS}s. "
+        f"Push the tag before publishing.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _find_broken_draft(releases: list[dict[str, Any]], tag: str) -> dict[str, Any] | None:
+    """Find a draft named `tag` that GitHub left with a placeholder `untagged-*` tag_name."""
+    for release in releases:
+        if release.get("name") == tag and release.get("tag_name", "").startswith("untagged-"):
+            return release
+    return None
+
+
 def main() -> None:
     tag = os.environ.get("INPUT_TAG", "")
     title = os.environ.get("INPUT_TITLE", "") or tag
@@ -186,84 +264,22 @@ def main() -> None:
     owner, repo = repository.split("/", 1)
 
     if dry_run:
-        print(f"[dry-run] Would create/ensure release for tag: {tag}")
-        print(f"  Title: {title}")
-        print(f"  Generate notes: {generate_notes}")
-        print(f"  Draft: {draft}")
-        print(f"  Pre-release: {prerelease}")
-        if target:
-            print(f"  Target: {target}")
+        _print_dry_run(tag, title, generate_notes=generate_notes, draft=draft, prerelease=prerelease, target=target)
         sys.exit(0)
 
     existing = get_release_by_tag(owner, repo, tag, token)
 
     if existing:
-        print(f"Release {tag} already exists")
-        is_draft = existing.get("draft", False)
-
-        actual_tag_name = existing.get("tag_name", "")
-        if actual_tag_name != tag:
-            print(
-                f"Warning: release has tag_name={actual_tag_name}, expected {tag}; repairing...",
-                file=sys.stderr,
-            )
-            release_id = int(existing.get("id", 0))
-            repaired = update_release(owner, repo, release_id, tag_name=tag, token=token)
-            if repaired.get("tag_name") != tag:
-                print(
-                    f"Error: PATCH to fix tag_name failed; release still has tag_name={repaired.get('tag_name')}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            print(f"Repaired tag_name to {tag}")
-
-        if is_draft and not draft:
-            print(f"Publishing draft release {tag}...")
-            release_id = int(existing.get("id", 0))
-            update_release(owner, repo, release_id, draft=False, token=token)
+        _reconcile_existing(owner, repo, existing, tag, token, draft=draft)
     else:
-        max_tag_wait_attempts = 12
-        tag_wait_interval = 5
-        tag_confirmed = False
+        _wait_for_tag(owner, repo, tag, token)
 
-        for attempt in range(1, max_tag_wait_attempts + 1):
-            if tag_exists_on_git(owner, repo, tag, token):
-                tag_confirmed = True
-                break
-            if attempt < max_tag_wait_attempts:
-                print(
-                    f"Tag {tag} not visible yet ({attempt}/{max_tag_wait_attempts}); "
-                    f"retrying in {tag_wait_interval}s...",
-                    file=sys.stderr,
-                )
-                time.sleep(tag_wait_interval)
-
-        if not tag_confirmed:
-            print(
-                f"Error: Tag {tag} not found on remote after {max_tag_wait_attempts * tag_wait_interval}s. "
-                f"Push the tag before publishing.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        all_releases = list_releases(owner, repo, token)
-        broken_draft = None
-        for rel in all_releases:
-            if rel.get("name") == tag and rel.get("tag_name", "").startswith("untagged-"):
-                broken_draft = rel
-                break
-
+        broken_draft = _find_broken_draft(list_releases(owner, repo, token), tag)
         if broken_draft:
             print(f"Found pre-existing broken draft for {tag}; repairing tag_name...")
-            release_id = int(broken_draft.get("id", 0))
-            repaired = update_release(owner, repo, release_id, tag_name=tag, token=token)
-            if repaired.get("tag_name") != tag:
-                print(
-                    f"Error: PATCH to fix broken draft tag_name failed; still has tag_name={repaired.get('tag_name')}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            print(f"Repaired broken draft, tag_name now {tag}")
+            _repair_tag_name(
+                owner, repo, broken_draft, tag, token, success_message=f"Repaired broken draft, tag_name now {tag}"
+            )
         else:
             print(f"Creating release {tag}...")
             created = create_release(
@@ -278,21 +294,12 @@ def main() -> None:
                 target=target,
                 token=token,
             )
-
             if created.get("tag_name") != tag:
                 print(
                     f"Warning: created release has tag_name={created.get('tag_name')}, expected {tag}; repairing...",
                     file=sys.stderr,
                 )
-                release_id = int(created.get("id", 0))
-                repaired = update_release(owner, repo, release_id, tag_name=tag, token=token)
-                if repaired.get("tag_name") != tag:
-                    print(
-                        f"Error: PATCH to fix tag_name failed; release still has tag_name={repaired.get('tag_name')}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-                print(f"Repaired tag_name to {tag}")
+                _repair_tag_name(owner, repo, created, tag, token)
 
     print(f"Release {tag} ready")
 

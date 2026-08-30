@@ -88,6 +88,65 @@ def _render_template(template_path: Path, mapping: dict[str, str]) -> str:
     return string.Template(raw).substitute(mapping)
 
 
+def _resolve_repo_root(config_file: Path) -> Path:
+    workspace = os.environ.get("GITHUB_WORKSPACE")
+    if workspace:
+        return Path(workspace).resolve()
+    repo_root = config_file.parent
+    while not (repo_root / ".git").exists() and repo_root != repo_root.parent:
+        repo_root = repo_root.parent
+    return repo_root
+
+
+def _render_one(
+    entry: dict[str, object],
+    *,
+    repo_root: Path,
+    tap_dir: Path,
+    cache_dir: Path,
+    tag: str,
+    version: str,
+    github_repo: str,
+    dry_run: bool,
+) -> str | None:
+    """Render a single formula. Returns the written path, or None on failure."""
+    name = entry.get("name")
+    template = entry.get("template")
+    assets = entry.get("assets") or {}
+    if not (isinstance(name, str) and isinstance(template, str) and isinstance(assets, dict) and assets):
+        print(f"::error::formula entry missing name/template/assets: {entry!r}", file=sys.stderr)
+        return None
+
+    template_path = repo_root / template
+    if not template_path.is_file():
+        print(f"::error::template not found: {template_path}", file=sys.stderr)
+        return None
+
+    mapping: dict[str, str] = {"tag": tag, "version": version}
+    for sha_key, asset_name_tmpl in assets.items():
+        resolved = _interpolate_asset_name(str(asset_name_tmpl), tag=tag, version=version)
+        local = _download_asset(github_repo, tag, resolved, cache_dir)
+        if local is None:
+            if dry_run:
+                print(f"::warning::dry-run: substituting zero SHA for missing {resolved}")
+                mapping[sha_key] = ZERO_SHA
+                continue
+            print(f"::error::could not fetch {resolved} for formula {name}", file=sys.stderr)
+            return None
+        mapping[sha_key] = _compute_sha256(local)
+
+    try:
+        rendered = _render_template(template_path, mapping)
+    except KeyError as exc:
+        print(f"::error::template {template_path} references undefined placeholder: {exc}", file=sys.stderr)
+        return None
+
+    target = tap_dir / "Formula" / f"{name}.rb"
+    target.write_text(rendered)
+    print(f"Wrote {target}")
+    return str(target)
+
+
 def main() -> int:
     tap_dir = Path(_require_env("INPUT_TAP_DIR")).resolve()
     config_file = Path(_require_env("INPUT_CONFIG_FILE")).resolve()
@@ -113,55 +172,25 @@ def main() -> int:
         print("::error::config must define at least one formula under 'formulas'", file=sys.stderr)
         return 1
 
+    repo_root = _resolve_repo_root(config_file)
     written: list[str] = []
-    workspace = os.environ.get("GITHUB_WORKSPACE")
-    repo_root = Path(workspace).resolve() if workspace else config_file.parent
-    if not workspace:
-        while not (repo_root / ".git").exists() and repo_root != repo_root.parent:
-            repo_root = repo_root.parent
 
     with tempfile.TemporaryDirectory(prefix="homebrew-assets-") as tmp:
         cache_dir = Path(tmp)
-
         for entry in formulas:
-            name = entry.get("name")
-            template = entry.get("template")
-            assets = entry.get("assets") or {}
-            if not (name and template and assets):
-                print(f"::error::formula entry missing name/template/assets: {entry!r}", file=sys.stderr)
+            target = _render_one(
+                entry,
+                repo_root=repo_root,
+                tap_dir=tap_dir,
+                cache_dir=cache_dir,
+                tag=tag,
+                version=version,
+                github_repo=github_repo,
+                dry_run=dry_run,
+            )
+            if target is None:
                 return 1
-
-            template_path = repo_root / template
-            if not template_path.is_file():
-                print(f"::error::template not found: {template_path}", file=sys.stderr)
-                return 1
-
-            mapping: dict[str, str] = {"tag": tag, "version": version}
-            for sha_key, asset_name_tmpl in assets.items():
-                resolved = _interpolate_asset_name(asset_name_tmpl, tag=tag, version=version)
-                local = _download_asset(github_repo, tag, resolved, cache_dir)
-                if local is None:
-                    if dry_run:
-                        print(f"::warning::dry-run: substituting zero SHA for missing {resolved}")
-                        mapping[sha_key] = ZERO_SHA
-                        continue
-                    print(f"::error::could not fetch {resolved} for formula {name}", file=sys.stderr)
-                    return 1
-                mapping[sha_key] = _compute_sha256(local)
-
-            try:
-                rendered = _render_template(template_path, mapping)
-            except KeyError as exc:
-                print(
-                    f"::error::template {template_path} references undefined placeholder: {exc}",
-                    file=sys.stderr,
-                )
-                return 1
-
-            target = tap_dir / "Formula" / f"{name}.rb"
-            target.write_text(rendered)
-            written.append(str(target))
-            print(f"Wrote {target}")
+            written.append(target)
 
     out_file = os.environ.get("GITHUB_OUTPUT")
     if out_file:

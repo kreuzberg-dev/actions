@@ -269,6 +269,74 @@ def _entry_needs_version(text: str) -> bool:
     return not VERSION_KEY_PATTERN.search(text)
 
 
+def _collect_inline_entry(lines: list[str], index: int) -> tuple[list[str], int]:
+    """Gather a dependency entry that may span lines, following brace depth.
+
+    Returns the entry's lines and the index of its last line.
+    """
+    opens, closes = _count_braces(lines[index])
+    entry_lines = [lines[index]]
+    depth = opens - closes
+    cursor = index
+    while depth > 0 and cursor + 1 < len(lines):
+        cursor += 1
+        entry_lines.append(lines[cursor])
+        opened, closed = _count_braces(lines[cursor])
+        depth += opened - closed
+    return entry_lines, cursor
+
+
+def _find_inline_table_close(entry_text: str, brace_pos: int) -> int:
+    """Index of the `}` closing the inline table opened at `brace_pos`, or -1.
+
+    Brace counting has to ignore braces inside strings: a `cfg(...)` target or a path
+    containing a brace would otherwise close the table early and corrupt the manifest. ~keep
+    """
+    depth = 0
+    in_single = False
+    in_double = False
+    escape = False
+    for position in range(brace_pos, len(entry_text)):
+        char = entry_text[position]
+        if escape:
+            escape = False
+            continue
+        if in_double and char == "\\":
+            escape = True
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+            continue
+        if in_single or in_double:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return position
+    return -1
+
+
+def _rewrite_inline_entry(entry_lines: list[str], version: str) -> list[str]:
+    """Inject a version into one inline-table dependency entry, or return it unchanged."""
+    entry_text = "".join(entry_lines)
+    brace_pos = entry_text.find("{", entry_text.find("="))
+    close_pos = _find_inline_table_close(entry_text, brace_pos)
+    if close_pos == -1:
+        return entry_lines
+
+    inline_block = entry_text[brace_pos : close_pos + 1]
+    if not _entry_needs_version(inline_block):
+        return entry_lines
+
+    rewritten_block = _inject_version_into_inline_table(inline_block, version)
+    return [entry_text[:brace_pos] + rewritten_block + entry_text[close_pos + 1 :]]
+
+
 def inject_path_dep_versions(manifest: str, version: str) -> str:
     """Return ``manifest`` with ``version = "<version>"`` injected into every path-dep that needs it.
 
@@ -331,61 +399,8 @@ def inject_path_dep_versions(manifest: str, version: str) -> str:
             index += 1
             continue
 
-        opens, closes = _count_braces(line)
-        entry_lines = [line]
-        depth = opens - closes
-        cursor = index
-        while depth > 0 and cursor + 1 < len(lines):
-            cursor += 1
-            next_line = lines[cursor]
-            entry_lines.append(next_line)
-            o, c = _count_braces(next_line)
-            depth += o - c
-
-        entry_text = "".join(entry_lines)
-        eq_pos = entry_text.find("=")
-        brace_pos = entry_text.find("{", eq_pos)
-        depth = 0
-        close_pos = -1
-        in_single = False
-        in_double = False
-        escape = False
-        for position in range(brace_pos, len(entry_text)):
-            char = entry_text[position]
-            if escape:
-                escape = False
-                continue
-            if in_double and char == "\\":
-                escape = True
-                continue
-            if char == '"' and not in_single:
-                in_double = not in_double
-                continue
-            if char == "'" and not in_double:
-                in_single = not in_single
-                continue
-            if in_single or in_double:
-                continue
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    close_pos = position
-                    break
-
-        if close_pos == -1:
-            output.extend(entry_lines)
-            index = cursor + 1
-            continue
-
-        inline_block = entry_text[brace_pos : close_pos + 1]
-        if _entry_needs_version(inline_block):
-            rewritten_block = _inject_version_into_inline_table(inline_block, version)
-            rewritten = entry_text[:brace_pos] + rewritten_block + entry_text[close_pos + 1 :]
-            output.append(rewritten)
-        else:
-            output.extend(entry_lines)
+        entry_lines, cursor = _collect_inline_entry(lines, index)
+        output.extend(_rewrite_inline_entry(entry_lines, version))
         index = cursor + 1
 
     flush_dotted()

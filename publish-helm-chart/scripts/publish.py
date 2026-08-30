@@ -105,6 +105,66 @@ def _run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
     return result.returncode, result.stdout + result.stderr
 
 
+def _run_or_exit(argv: list[str], failure_message: str) -> None:
+    code, output = _run(argv)
+    if code != 0:
+        print(failure_message, file=sys.stderr)
+        print(output, file=sys.stderr)
+        sys.exit(1)
+
+
+def _package_chart(chart_path: Path, version: str) -> Path:
+    """Build dependencies, package the chart, and return the resulting tarball."""
+    print(f"Building chart dependencies for {chart_path}")
+    _run_or_exit(["helm", "dependency", "build", "--skip-refresh", str(chart_path)], "helm dependency build failed:")
+
+    print(f"Packaging {chart_path}")
+    _run_or_exit(["helm", "package", str(chart_path)], "helm package failed:")
+
+    cwd = Path.cwd()
+    matches = sorted(cwd.glob(f"*-{version}.tgz"))
+    if not matches:
+        print(f"Error: packaged chart not found in {cwd} (expected *-{version}.tgz)", file=sys.stderr)
+        sys.exit(1)
+    tarball = matches[-1].resolve()
+    print(f"Packaged: {tarball}")
+    return tarball
+
+
+def _registry_login(registry: str, username: str, password: str) -> None:
+    host = extract_registry_host(registry)
+    print(f"Logging in to {host}")
+    login = subprocess.run(
+        ["helm", "registry", "login", "-u", username, "--password-stdin", host],
+        input=password,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if login.returncode != 0:
+        print("helm registry login failed:", file=sys.stderr)
+        print(login.stdout + login.stderr, file=sys.stderr)
+        sys.exit(1)
+
+
+def _push_chart(tarball: Path, registry: str, version: str) -> None:
+    print(f"Pushing {tarball.name} to {registry}")
+    code, output = _run(["helm", "push", str(tarball), registry])
+    if code == 0:
+        print("Pushed successfully")
+        write_outputs(published="true", skipped="false", **{"chart-tarball": str(tarball)})
+        return
+
+    if is_already_published(output):
+        print(f"Version {version} already exists in {registry}, skipping")
+        write_outputs(published="false", skipped="true", **{"chart-tarball": str(tarball)})
+        return
+
+    print("helm push failed:", file=sys.stderr)
+    print(output, file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> None:
     chart_path = Path(os.environ.get("INPUT_CHART_PATH", ""))
     version = os.environ.get("INPUT_VERSION", "").strip()
@@ -125,78 +185,19 @@ def main() -> None:
     chart_yaml = chart_path / "Chart.yaml"
     stamp_chart_yaml(chart_yaml, version, app_version)
 
-    print(f"Building chart dependencies for {chart_path}")
-    code, output = _run(["helm", "dependency", "build", "--skip-refresh", str(chart_path)])
-    if code != 0:
-        print("helm dependency build failed:", file=sys.stderr)
-        print(output, file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Packaging {chart_path}")
-    code, output = _run(["helm", "package", str(chart_path)])
-    if code != 0:
-        print("helm package failed:", file=sys.stderr)
-        print(output, file=sys.stderr)
-        sys.exit(1)
-
-    cwd = Path.cwd()
-    matches = sorted(cwd.glob(f"*-{version}.tgz"))
-    if not matches:
-        print(f"Error: packaged chart not found in {cwd} (expected *-{version}.tgz)", file=sys.stderr)
-        sys.exit(1)
-    tarball = matches[-1].resolve()
-    print(f"Packaged: {tarball}")
+    tarball = _package_chart(chart_path, version)
 
     if dry_run:
         print("Dry run — skipping registry login and push")
-        write_outputs(
-            published="false",
-            skipped="false",
-            **{"chart-tarball": str(tarball)},
-        )
+        write_outputs(published="false", skipped="false", **{"chart-tarball": str(tarball)})
         return
 
     if not registry or not username or not password:
         print("Error: registry, username, and password are required (unless dry-run=true)", file=sys.stderr)
         sys.exit(1)
 
-    host = extract_registry_host(registry)
-    print(f"Logging in to {host}")
-    login = subprocess.run(
-        ["helm", "registry", "login", "-u", username, "--password-stdin", host],
-        input=password,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if login.returncode != 0:
-        print("helm registry login failed:", file=sys.stderr)
-        print(login.stdout + login.stderr, file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Pushing {tarball.name} to {registry}")
-    code, output = _run(["helm", "push", str(tarball), registry])
-    if code == 0:
-        print("Pushed successfully")
-        write_outputs(
-            published="true",
-            skipped="false",
-            **{"chart-tarball": str(tarball)},
-        )
-        return
-
-    if is_already_published(output):
-        print(f"Version {version} already exists in {registry}, skipping")
-        write_outputs(
-            published="false",
-            skipped="true",
-            **{"chart-tarball": str(tarball)},
-        )
-        return
-
-    print("helm push failed:", file=sys.stderr)
-    print(output, file=sys.stderr)
-    sys.exit(1)
+    _registry_login(registry, username, password)
+    _push_chart(tarball, registry, version)
 
 
 if __name__ == "__main__":
