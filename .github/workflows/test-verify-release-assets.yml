@@ -19,7 +19,7 @@ jobs:
         id: verify
         uses: ./verify-release-assets
         with:
-          tag: v0.26.2
+          tag: v0.79.2
           expected-assets: |
             alef-aarch64-apple-darwin.tar.gz
             alef-x86_64-unknown-linux-gnu.tar.gz

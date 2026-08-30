@@ -138,7 +138,7 @@ def fetch_release_assets(tag: str) -> list[dict[str, Any]]:
     failures with backoff: the GitHub release replica can briefly answer
     404/502 right after `gh release create` returns.
     """
-    repo = os.environ.get("GITHUB_REPOSITORY") or os.environ.get("GH_REPO")
+    repo = os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY")
     if not repo:
         print("Error: GITHUB_REPOSITORY (or GH_REPO) must be set", file=sys.stderr)
         sys.exit(1)

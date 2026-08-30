@@ -113,6 +113,21 @@ def test_fetch_release_assets_falls_back_to_view(monkeypatch: pytest.MonkeyPatch
     assert module.fetch_release_assets("v1") == [{"name": "found.zip"}]
 
 
+def test_fetch_release_assets_prefers_explicit_repo_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setenv("GITHUB_REPOSITORY", "xberg-io/actions")
+    monkeypatch.setenv("GH_REPO", "xberg-io/alef")
+    calls: list[list[str]] = []
+
+    def _fake_run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return _completed(stdout=json.dumps([{"tag_name": "v1", "assets": []}]))
+
+    monkeypatch.setattr(module, "_run_gh", _fake_run)
+    assert module.fetch_release_assets("v1") == []
+    assert calls[0][3] == "repos/xberg-io/alef/releases?per_page=100"
+
+
 def test_fetch_release_assets_retries_then_exits(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")

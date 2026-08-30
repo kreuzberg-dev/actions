@@ -36,3 +36,10 @@ def test_validate_versions_workflow_uses_current_alef_schema():
     assert workflow.count('languages = ["node"]') == 2
     assert "_fixture/mismatch" not in workflow
     assert 'if [[ "${OUTCOME}" != "failure" ]]; then' in workflow
+
+
+def test_release_asset_workflow_targets_an_existing_immutable_release():
+    workflow = (_ROOT / ".github" / "workflows" / "test-verify-release-assets.yml").read_text()
+
+    assert "tag: v0.79.2" in workflow
+    assert "tag: v0.26.2" not in workflow
