@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-30
+
 ### Changed
 
 - `reusable-validate` installs golangci-lint from its released binary instead of `go install`.
