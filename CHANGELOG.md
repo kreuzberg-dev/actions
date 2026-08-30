@@ -4,6 +4,23 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-30
+
+### Fixed
+
+- `task test` now honors every configured pytest test path instead of overriding collection with
+  `tests/`, so the 63 per-action tests are part of the documented release gate. The unit workflow
+  also runs when `Taskfile.yml` or `reusable-validate.yml` changes, preventing either gate from
+  being modified without executing its regression tests.
+- `free-disk-space-linux` additionally prunes dangling Docker images while retaining tagged images
+  prepared for later Docker actions. Its workflow now requires at least 512 MiB of reclaimed space
+  and still verifies that a pre-pulled tagged image survives cleanup.
+
+### Changed
+
+- This minor release is the supported rollout of the reusable Go 1.26 default introduced in
+  v1.9.1, reflecting that the default changes behavior for callers that do not override it.
+
 ## [1.9.1] - 2026-08-30
 
 ### Fixed
