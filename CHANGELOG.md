@@ -4,6 +4,23 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-09-01
+
+### Fixed
+
+- `publish-npm`, `publish-pypi`, `publish-maven`, `publish-nuget` and `publish-rubygems` strip a
+  `-dryrun-<sha>` tag suffix before comparing `expected-version` to an artifact's own version.
+  `1.11.0` gave those five the release-version guard without the strip that `publish-crates` and
+  the shell-based actions received, so once `v1` moved they failed every dry run on a correct
+  checkout. A guard that can only fail is worse than no guard. The strip keys on the literal
+  `-dryrun-` marker rather than the first hyphen, so `1.9.0-rc.2` is still compared in full.
+- `install-alef` sends its `GITHUB_TOKEN` on the release-asset download. The action already put
+  the token in the script's environment and `resolve.sh` already used it, but the download did
+  not: unauthenticated github.com requests from shared runners share a low per-IP rate limit, and
+  a 403 there is indistinguishable from any other failure -- it exhausts the retries and falls
+  through to the `cargo install --git` fallback, which succeeds. That is the shape that hid alef
+  v0.79.5 shipping zero release assets.
+
 ## [1.11.1] - 2026-09-01
 
 ### Fixed
