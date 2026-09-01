@@ -50,10 +50,10 @@ inputs:
     default: "false"
   expected-version:
     description: >
-      Version of the release being published (a leading `v` is stripped). When set, the
-      Gradle project version must equal this or the action fails before publishing.
-      Leaving it empty preserves the old behaviour but disables the stale-artifact guard,
-      and the action warns loudly.
+      Version of the release being published (a leading `v` and a `-dryrun-<sha>` suffix are
+      stripped). When set, the version the Gradle project would publish must equal this or the
+      action fails before publishing. Leaving it empty preserves the old behaviour but disables
+      the stale-artifact guard, and the action warns loudly.
     required: false
     default: ""
 
@@ -124,12 +124,14 @@ runs:
         [[ $missing -eq 0 ]] || exit 1
 
     - name: Verify the Gradle project version matches the release
+      id: verify-version
       shell: bash
       env:
         WORKING_DIR: ${{ inputs.working-directory }}
         NO_DAEMON: ${{ inputs.no-daemon }}
         INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
       run: |
+        set -euo pipefail
         # ~keep This pre-flight is what makes the "already published, skipping" branch of the
         # publish step safe, and the two must not be collapsed. That branch matches the broadest
         # pattern of any publish action here over arbitrary Gradle output with no version
@@ -142,27 +144,69 @@ runs:
           exit 0
         fi
         expected="${INPUT_EXPECTED_VERSION#v}"
+        # ~keep A dry run synthesizes its tag as `<version>-dryrun-<sha>` (see
+        # prepare-release-metadata), a version no manifest will ever hold. Strip the suffix
+        # rather than skipping the assertion on dry runs: a dry run is exactly where a stale
+        # checkout should surface, while nothing has been published yet.
+        expected="${expected%%-dryrun-*}"
         cd "$WORKING_DIR"
+
+        gradle_flags=()
+        if [[ "$NO_DAEMON" == "true" ]]; then
+          gradle_flags+=(--no-daemon)
+        fi
+
         # gradle.properties is the cheap, exact source when the project uses it. Build scripts
         # (build.gradle/.kts) cannot be parsed reliably by grep, so fall back to asking Gradle
         # itself — `gradle properties -q` prints a `version: <x>` line for the resolved project.
         version=""
         if [[ -f gradle.properties ]]; then
-          version=$(grep -E '^[[:space:]]*version[[:space:]]*=' gradle.properties | head -1 | cut -d= -f2- | tr -d " \"'")
+          version=$(grep -E '^[[:space:]]*version[[:space:]]*=' gradle.properties | head -1 | cut -d= -f2- | tr -d " \"'" || true)
         fi
         if [[ -z "$version" || "$version" == "unspecified" ]]; then
-          gradle_flags=()
-          if [[ "$NO_DAEMON" == "true" ]]; then
-            gradle_flags+=(--no-daemon)
-          fi
           version=$(gradle properties -q "${gradle_flags[@]}" 2>/dev/null | grep -E '^version:' | head -1 | cut -d: -f2- | tr -d " \"'" || true)
         fi
+
+        # ~keep Neither source above can see a version declared only in the vanniktech plugin's
+        # `coordinates(...)` block, which is where every Kotlin Android package in this org
+        # declares it: `project.version` is never assigned, so `gradle properties -q` prints
+        # `version: unspecified` and this guard could not run at all on the packages it exists
+        # for. The generated POM carries the version Maven Central will index, so ask Gradle to
+        # write it and read that instead. POMs left by an earlier build are deleted first — a
+        # stale POM satisfying the guard would be the very failure this step is here to catch.
         if [[ -z "$version" || "$version" == "unspecified" ]]; then
-          echo "::error::expected-version ${expected} was supplied but the project version could not be determined in ${WORKING_DIR} (no version in gradle.properties and 'gradle properties -q' reported none), so the artifact cannot be verified"
+          find . -path '*/build/publications/*/pom-default.xml' -delete 2>/dev/null || true
+          init_script=$(mktemp -t alef-pom-probe.XXXXXX)
+          cat >"$init_script" <<'INIT_SCRIPT'
+        allprojects {
+            tasks.register("alefGeneratePomFiles") {
+                dependsOn(tasks.matching { it.name.startsWith("generatePomFileFor") && it.name.endsWith("Publication") })
+            }
+        }
+        INIT_SCRIPT
+          gradle -q -I "$init_script" alefGeneratePomFiles "${gradle_flags[@]}" >/dev/null 2>&1 || true
+          rm -f "$init_script"
+          version=$(python3 -c '
+        import glob
+        import xml.etree.ElementTree as ElementTree
+
+        versions = set()
+        for path in glob.glob("**/build/publications/*/pom-default.xml", recursive=True):
+            root = ElementTree.parse(path).getroot()
+            namespace = root.tag[: root.tag.index("}") + 1] if root.tag.startswith("{") else ""
+            found = (root.findtext(namespace + "version") or "").strip()
+            if found:
+                versions.add(found)
+        print(versions.pop() if len(versions) == 1 else "")
+        ' || true)
+        fi
+
+        if [[ -z "$version" || "$version" == "unspecified" ]]; then
+          echo "::error::expected-version ${expected} was supplied but the version this project would publish could not be determined in ${WORKING_DIR} (no version in gradle.properties, 'gradle properties -q' reported none, and no single version could be read from a generated POM), so the artifact cannot be verified"
           exit 1
         fi
         if [[ "$version" != "$expected" ]]; then
-          echo "::error::the Gradle project declares version ${version} but the release being published is ${expected}. The artifact is stale; publishing it would ship the wrong version or be silently swallowed as an 'already published' skip."
+          echo "::error::the Gradle project would publish version ${version} but the release being published is ${expected}. The artifact is stale; publishing it would ship the wrong version or be silently swallowed as an 'already published' skip."
           exit 1
         fi
         echo "Verified the Gradle project carries the release version ${expected}"
