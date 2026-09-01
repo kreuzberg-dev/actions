@@ -4,6 +4,25 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `publish-npm`, `publish-pypi`, `publish-maven`, `publish-nuget`, `publish-rubygems`,
+  `publish-gleam`, `publish-hex`, `publish-maven-gradle` and `publish-pub` take an optional
+  `expected-version` and assert every artifact carries it before the first publish. A registry's
+  "already published" response was previously treated as an idempotent skip regardless of the
+  artifact's version, so a stale build concluded success having shipped nothing for the tag.
+  Omitting the input preserves the previous behavior and warns.
+
+### Fixed
+
+- `publish-crates` requires the crates.io index to carry the release version behind an
+  already-published skip, and verifies every crate manifest against the release version before
+  the first publish.
+- `publish-packagist` fails when the release version never appears on Packagist. The poll result
+  was computed and discarded, so the action could not fail at all.
+- `publish-r-package` asserts that `DESCRIPTION` declares the release version and selects the
+  built tarball by that version, instead of uploading whichever tarball `ls` listed first.
+
 ## [1.10.2] - 2026-08-30
 
 ### Fixed
