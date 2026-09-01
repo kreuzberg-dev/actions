@@ -4,6 +4,27 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `validate-versions` asserts that the canonical `Cargo.toml` version is the version being
+  released. The `version` input was declared and wired into the step environment but never read,
+  so the action only proved the language manifests agreed with each other — which a stale
+  checkout satisfies exactly as well as a correct one. Five product repos rely on it as their
+  release gate. Omitting the input preserves the previous consistency-only behavior.
+- `publish-maven-gradle` reads the version from the generated POM when neither `gradle.properties`
+  nor `gradle properties -q` reports one. Every Kotlin Android package declares its version only
+  in the vanniktech plugin's `coordinates(...)` block, leaving `project.version` unset, so the
+  guard failed closed on correct projects and could not run at all on the packages it was added
+  for. A `gradle.properties` without a `version` key no longer aborts the step either.
+- `check-registry` fails when its `tag` input names a different release than `version`. `alef
+  check-registry` has no tag option, so the input could never redirect the query and was silently
+  discarded while two repos passed it.
+- Release-version guards strip a `-dryrun-<sha>` tag suffix before comparing, in
+  `validate-versions`, `publish-crates`, `publish-gleam`, `publish-hex`, `publish-maven-gradle`,
+  `publish-pub` and `publish-r-package`. A dry run synthesizes that tag, so `publish-crates`
+  failed every dry run on a correct checkout. The assertion still runs on dry runs — that is
+  where a stale checkout should surface, while nothing has been published.
+
 ## [1.11.0] - 2026-09-01
 
 ### Added
