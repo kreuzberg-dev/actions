@@ -12,6 +12,7 @@ fact correct. These tests pin the strip for every action that carries the guard.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 from pathlib import Path
 
@@ -35,10 +36,9 @@ def _load(action: str, rel: str):
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    try:
+    # ~keep A module that calls main() at import time exits; we only want its functions.
+    with contextlib.suppress(SystemExit):
         spec.loader.exec_module(module)
-    except SystemExit:  # a module that runs main() under __main__ only
-        pass
     return module
 
 

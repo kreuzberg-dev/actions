@@ -129,8 +129,13 @@ jobs:
       - name: Create dummy Rust crate
         run: |
           cargo init --name test-crate /tmp/test-crate
-          cd /tmp/test-crate
-          # dry-run will validate but not publish
+          # ~keep Pin the manifest version explicitly rather than relying on `cargo init`'s
+          # default: the release-version guard compares this against the `version` input below,
+          # so the two must agree by construction. They previously did not (init defaults to
+          # 0.1.0, the input said 0.0.1), which the guard correctly rejected the first time this
+          # job ran against it. Keep both numbers in sync when changing either.
+          sed -i 's/^version = .*/version = "0.0.1"/' /tmp/test-crate/Cargo.toml
+          grep -q '^version = "0.0.1"$' /tmp/test-crate/Cargo.toml
 
       - name: Test publish-crates (dry-run)
         uses: ./publish-crates
