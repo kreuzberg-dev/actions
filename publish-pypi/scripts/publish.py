@@ -97,10 +97,50 @@ def _emit_output(key: str, value: str) -> None:
             fh.write(f"{key}={value}\n")
 
 
+def normalize_release_version(version: str) -> str:
+    """Strip whitespace and a leading `v` so a tag (`v1.19.0`) compares to a dist version."""
+    return version.strip().removeprefix("v")
+
+
+def assert_dists_match_release(versions: set[tuple[str, str]], expected_version: str) -> None:
+    """Fail when any dist file carries a version other than the release being published.
+
+    ~keep This guard is what makes the idempotency check below safe, and the two must not be
+    collapsed. Skipping a version that is already on the registry is legitimate ONLY when that
+    version is the one being released. liter-llm v1.19.0 rebuilt a 1.18.4 wheel, matched the
+    already-published check on 1.18.4, and reported success having published nothing for the
+    tag. A stale artifact is a build failure and must fail loudly — never resolve to a skip.
+    """
+    if not versions:
+        print(
+            f"Error: expected-version {expected_version} was supplied but no dist filename could be "
+            f"parsed, so the artifacts cannot be verified against the release",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mismatched = sorted(f"{name} {version}" for name, version in versions if version != expected_version)
+    if mismatched:
+        print(
+            f"Error: dist files carry version(s) that differ from the release version "
+            f"{expected_version}: {', '.join(mismatched)}",
+            file=sys.stderr,
+        )
+        print(
+            "The built artifacts are stale. Publishing them would ship the wrong version, or be "
+            "silently swallowed as an 'already published' skip.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Verified all dist files carry the release version {expected_version}")
+
+
 def main() -> None:
     packages_dir = Path(os.environ.get("INPUT_PACKAGES_DIR", "dist"))
     dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
     upload_url = os.environ.get("INPUT_REPOSITORY_URL", "https://upload.pypi.org/legacy/")
+    expected_version = normalize_release_version(os.environ.get("INPUT_EXPECTED_VERSION", ""))
 
     files = validate_dist_dir(packages_dir)
 
@@ -108,17 +148,28 @@ def main() -> None:
     for f in files:
         print(f"  {f.name}")
 
-    if dry_run:
-        print("[dry-run] Skipping publish")
-        _emit_output("version_published", "false")
-        return
-
     versions: set[tuple[str, str]] = set()
     for f in files:
         if parsed := parse_name_version(f.name):
             versions.add(parsed)
         else:
             print(f"Warning: could not parse name/version from {f.name}", file=sys.stderr)
+
+    # ~keep Runs before the dry-run bail on purpose: a dry run exists to catch a stale build
+    # before the real release, so it must apply the same version assertion.
+    if expected_version:
+        assert_dists_match_release(versions, expected_version)
+    else:
+        print(
+            "::warning::publish-pypi was invoked without `expected-version`; a stale artifact "
+            "cannot be detected and an 'already published' registry hit will be treated as an "
+            "idempotent skip. Pass the release version from the caller to close this gap."
+        )
+
+    if dry_run:
+        print("[dry-run] Skipping publish")
+        _emit_output("version_published", "false")
+        return
 
     if not versions:
         print("Warning: no parseable dist files; skipping idempotency check", file=sys.stderr)

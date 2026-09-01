@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _SCRIPT_PATH = Path(__file__).resolve().parents[1] / "publish-crates" / "scripts" / "publish.py"
 
 
@@ -101,3 +103,116 @@ def test_publish_crate_does_not_retry_new_crate_trusted_publishing(monkeypatch):
     assert crates_mod.is_new_crate_trusted_publishing(output) is True
     assert calls == 1, "must not retry the new-crate rejection"
     assert slept == [], "must not sleep between (non-existent) retries"
+
+
+def test_normalize_release_version_strips_tag_prefix():
+    assert crates_mod.normalize_release_version("v1.16.0") == "1.16.0"
+    assert crates_mod.normalize_release_version("  1.16.0 ") == "1.16.0"
+    assert crates_mod.normalize_release_version("") == ""
+
+
+def test_inject_path_dep_versions_leaves_the_package_version_untouched():
+    """Version injection rewrites dependency sections only, so a stale `[package] version` survives it."""
+    manifest = '[package]\nname = "demo"\nversion = "1.15.12"\n\n[dependencies]\ninner = { path = "../inner" }\n'
+
+    rewritten = crates_mod.inject_path_dep_versions(manifest, "1.16.0")
+
+    assert 'version = "1.15.12"' in rewritten
+    assert 'inner = { path = "../inner", version = "1.16.0" }' in rewritten
+
+
+def test_assert_crates_match_release_accepts_matching_versions():
+    crates_mod.assert_crates_match_release([("core", "1.16.0"), ("cli", "1.16.0")], "1.16.0")
+
+
+def test_assert_crates_match_release_fails_on_a_stale_manifest():
+    """tree-sitter-language-pack v1.16.0 published manifests still carrying 1.15.12."""
+    with pytest.raises(SystemExit) as exc_info:
+        crates_mod.assert_crates_match_release([("tree-sitter-language-pack", "1.15.12")], "1.16.0")
+
+    assert exc_info.value.code == 1
+
+
+def test_assert_crates_match_release_fails_when_a_version_is_unreadable():
+    with pytest.raises(SystemExit) as exc_info:
+        crates_mod.assert_crates_match_release([("core", "1.16.0"), ("ghost", None)], "1.16.0")
+
+    assert exc_info.value.code == 1
+
+
+def _prepare_main(
+    monkeypatch: pytest.MonkeyPatch,
+    packages: dict,
+    *,
+    version: str = "1.16.0",
+) -> None:
+    """Point `main()` at a fake workspace so no cargo subprocess is required."""
+    monkeypatch.setenv("INPUT_CRATES", " ".join(packages))
+    monkeypatch.setenv("INPUT_VERSION", version)
+    monkeypatch.setenv("INPUT_DRY_RUN", "false")
+    monkeypatch.setenv("INPUT_MANIFEST_PATH", "")
+    monkeypatch.setattr(crates_mod, "_discover_workspace_packages", lambda manifest_args: packages)
+
+
+def _package(version: str, name: str = "demo") -> "crates_mod.WorkspacePackage":
+    return crates_mod.WorkspacePackage(f"/nonexistent/{name}/Cargo.toml", version)
+
+
+def test_main_refuses_a_stale_crate_before_publishing_anything(monkeypatch: pytest.MonkeyPatch):
+    """A stale manifest must fail the job, and must not publish the crates ahead of it.
+
+    crates.io forbids republishing a version, so a mismatch caught mid-list is unrecoverable —
+    tree-sitter-language-pack v1.16.0 is the incident this guards.
+    """
+    packages = {"fresh": _package("1.16.0", "fresh"), "stale": _package("1.15.12", "stale")}
+    calls: list[list[str]] = []
+    monkeypatch.setattr(crates_mod, "_run", lambda cmd: calls.append(cmd) or (0, ""))
+    _prepare_main(monkeypatch, packages)
+
+    with pytest.raises(SystemExit) as exc_info:
+        crates_mod.main()
+
+    assert exc_info.value.code == 1
+    assert calls == [], "no crate may be published once a stale manifest is present"
+
+
+def test_main_still_skips_an_already_published_release_version(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """An idempotent re-run of the version being released stays a success-with-skip."""
+    _prepare_main(monkeypatch, {"demo": _package("1.16.0")})
+    monkeypatch.setattr(crates_mod, "_run", lambda cmd: (1, "error: crate version 1.16.0 is already uploaded"))
+    monkeypatch.setattr(crates_mod, "wait_for_index", lambda crate, version: True)
+
+    crates_mod.main()
+
+    out = capsys.readouterr().out
+    assert "demo@1.16.0 already published, skipping" in out
+    assert "All crates published successfully" in out
+
+
+def test_main_fails_when_an_already_published_skip_is_not_backed_by_the_index(monkeypatch: pytest.MonkeyPatch):
+    """An 'already published' claim the index cannot corroborate must fail, never warn-and-continue."""
+    _prepare_main(monkeypatch, {"demo": _package("1.16.0")})
+    monkeypatch.setattr(crates_mod, "_run", lambda cmd: (1, "error: already exists in the registry"))
+    monkeypatch.setattr(crates_mod, "wait_for_index", lambda crate, version: False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        crates_mod.main()
+
+    assert exc_info.value.code == 1
+
+
+def test_main_treats_index_lag_after_a_successful_publish_as_a_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """After a confirmed upload an absent index entry is propagation lag, so the run continues."""
+    _prepare_main(monkeypatch, {"demo": _package("1.16.0")})
+    monkeypatch.setattr(crates_mod, "_run", lambda cmd: (0, ""))
+    monkeypatch.setattr(crates_mod, "wait_for_index", lambda crate, version: False)
+
+    crates_mod.main()
+
+    captured = capsys.readouterr()
+    assert "All crates published successfully" in captured.out
+    assert "proceeding anyway" in captured.err

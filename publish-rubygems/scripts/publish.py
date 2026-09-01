@@ -16,10 +16,29 @@ ALREADY_PUBLISHED_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# ~keep A gem filename is `<name>-<version>[-<platform>].gem` and both halves may contain hyphens:
+# a hyphenated gem name is legal (`my-gem-1.2.3.gem`), and rb_sys cross-compiles platform gems
+# (`liter_llm-1.19.0-x86_64-linux.gem`). The version is therefore anchored as the last
+# hyphen-delimited run starting with a digit, optionally followed by a platform tag, which always
+# starts with a letter. Matching the plain form first keeps a plain gem from being read as a
+# platform gem.
+_GEM_FILENAME_RE = re.compile(r"^(?P<name>.+)-(?P<version>\d[0-9A-Za-z.]*)\.gem$")
+_PLATFORM_GEM_FILENAME_RE = re.compile(
+    r"^(?P<name>.+)-(?P<version>\d[0-9A-Za-z.]*)-(?P<platform>[A-Za-z][0-9A-Za-z._-]*)\.gem$"
+)
+
 
 def is_already_published(output: str) -> bool:
     """Return True if the gem push output indicates the gem was already published."""
     return bool(ALREADY_PUBLISHED_PATTERN.search(output))
+
+
+def parse_gem_version(filename: str) -> str | None:
+    """Return the version encoded in a `<name>-<version>[-<platform>].gem` filename, or None."""
+    for pattern in (_GEM_FILENAME_RE, _PLATFORM_GEM_FILENAME_RE):
+        if match := pattern.match(filename):
+            return match["version"]
+    return None
 
 
 def validate_gem_structure(path: Path) -> bool:
@@ -78,6 +97,96 @@ def _resolve_push_key() -> str:
     return ""
 
 
+def normalize_release_version(version: str) -> str:
+    """Strip whitespace and a leading `v` so a tag (`v1.19.0`) compares to a gem filename version."""
+    return version.strip().removeprefix("v")
+
+
+def assert_gems_match_release(gem_files: list[Path], expected_version: str) -> None:
+    """Fail before any push when a gem carries a version other than the release being published.
+
+    ~keep This guard is what makes the `is_already_published` skip below safe, and the two must
+    not be collapsed. Skipping is legitimate ONLY when the gem's version IS the release version
+    (an idempotent re-run); it is a silent data-loss bug when the gem is stale.
+    This exact shape shipped two broken releases on sibling registries: tree-sitter-language-pack
+    v1.16.0 on npm and liter-llm v1.19.0 on npm and PyPI each published a stale artifact, matched
+    the registry's already-published response, and reported success having shipped nothing for the
+    tag. publish-rubygems had the same unguarded skip; the guard is here so it never gets a turn.
+
+    ~keep Runs as a pre-flight over every gem rather than inline per push because RubyGems refuses
+    to repush a version: a stale gem caught halfway through has already pushed the gems ahead of
+    it, and those cannot be corrected afterwards.
+    """
+    parsed = [(gem.name, parse_gem_version(gem.name)) for gem in gem_files]
+
+    # ~keep An unparseable filename fails rather than warns: it is exactly the blind spot the
+    # guard exists to close, since an unverifiable gem is indistinguishable from a stale one.
+    unparseable = sorted(name for name, version in parsed if version is None)
+    if unparseable:
+        print(
+            f"Error: expected-version {expected_version} was supplied but no version could be "
+            f"parsed from {', '.join(unparseable)}, so the gem(s) cannot be verified",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mismatched = sorted(f"{name} carries {version}" for name, version in parsed if version != expected_version)
+    if mismatched:
+        print(
+            f"Error: gem(s) carry a version other than the release version {expected_version}: {'; '.join(mismatched)}",
+            file=sys.stderr,
+        )
+        print(
+            "The built gems are stale. Publishing them would ship the wrong version, or be "
+            "silently swallowed as an 'already published' skip.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Verified {len(parsed)} gem(s) carry the release version {expected_version}")
+
+
+def warn_expected_version_missing() -> None:
+    """Warn that the stale-artifact guard is disabled because no expected-version was supplied."""
+    print(
+        "::warning::publish-rubygems was invoked without `expected-version`; a stale gem cannot "
+        "be detected and RubyGems' 'has already been pushed' response will be treated as an "
+        "idempotent skip. Pass the release version from the caller to close this gap."
+    )
+
+
+def verify_release_versions(gem_files: list[Path], raw_expected_version: str) -> None:
+    """Apply the stale-artifact guard, or warn loudly that it has been left disabled.
+
+    ~keep Called before the credential resolution and before the dry-run branch on purpose: a dry
+    run exists to catch a stale build ahead of the real release, so it must apply the same
+    assertion the real release does.
+    """
+    expected_version = normalize_release_version(raw_expected_version)
+    if expected_version:
+        assert_gems_match_release(gem_files, expected_version)
+    else:
+        warn_expected_version_missing()
+
+
+def build_push_env(dry_run: bool) -> dict[str, str] | None:
+    """Return the environment for `gem push`, or None for a dry run.
+
+    Exits with status 1 when a real push has no credential available.
+    """
+    if dry_run:
+        return None
+    push_key = _resolve_push_key()
+    if not push_key:
+        print(
+            "Error: no rubygems push credential available "
+            "(GEM_HOST_API_KEY/BUNDLE_GEM__PUSH_KEY/RUBYGEMS_API_KEY all empty)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return {**os.environ, "GEM_HOST_API_KEY": push_key}
+
+
 def main() -> None:
     gems_dir = os.environ.get("INPUT_GEMS_DIR", "")
     dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
@@ -96,20 +205,12 @@ def main() -> None:
         print(f"Error: no .gem files found in {gems_dir}", file=sys.stderr)
         sys.exit(1)
 
+    verify_release_versions(gem_files, os.environ.get("INPUT_EXPECTED_VERSION", ""))
+
     failed = 0
     published = 0
 
-    push_env: dict[str, str] | None = None
-    if not dry_run:
-        push_key = _resolve_push_key()
-        if not push_key:
-            print(
-                "Error: no rubygems push credential available "
-                "(GEM_HOST_API_KEY/BUNDLE_GEM__PUSH_KEY/RUBYGEMS_API_KEY all empty)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        push_env = {**os.environ, "GEM_HOST_API_KEY": push_key}
+    push_env = build_push_env(dry_run)
 
     print(f"Publishing {len(gem_files)} gem(s)...")
 
@@ -139,6 +240,9 @@ def main() -> None:
             print(f"  Published {name}")
             published += 1
         elif is_already_published(output):
+            # ~keep Counted as published only because the pre-flight above has already proven this
+            # gem carries the release version, which makes the registry hit a genuine idempotent
+            # re-run rather than a stale gem silently standing in for the release.
             print(f"  {name} already published, skipping")
             published += 1
         else:

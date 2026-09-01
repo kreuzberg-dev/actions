@@ -17,11 +17,27 @@ Usage (GitHub Actions via env vars):
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# ~keep `dotnet nuget push --skip-duplicate` turns a 409 Conflict into exit code 0, so a duplicate
+# is only visible in the push output. Without this pattern a duplicate is logged as
+# "Published <name>" and a release that shipped nothing reads exactly like one that shipped
+# everything. That indistinguishability is what made the npm and PyPI stale-artifact releases
+# (tree-sitter-language-pack v1.16.0, liter-llm v1.19.0) so slow to diagnose.
+ALREADY_PUBLISHED_PATTERN = re.compile(
+    r"already exists|already contains",
+    re.IGNORECASE,
+)
+
+# ~keep A nupkg filename is `<Id>.<Version>.nupkg` and the Id itself is dotted
+# (`Xberg.Core.1.2.3.nupkg`), so the Id is matched lazily and the version is anchored as the
+# longest trailing dotted-numeric run, plus an optional SemVer prerelease tag.
+_NUPKG_FILENAME_RE = re.compile(r"^(?P<id>.+?)\.(?P<version>\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?)\.nupkg$")
 
 
 def find_nupkg_files(directory: Path) -> list[Path]:
@@ -32,6 +48,102 @@ def find_nupkg_files(directory: Path) -> list[Path]:
 def is_publish_error(exit_code: int, output: str) -> bool:  # noqa: ARG001
     """Return True if the exit code indicates a real publish failure."""
     return exit_code != 0
+
+
+def is_already_published(output: str) -> bool:
+    """Return True if the push output indicates the package was already on the source."""
+    return bool(ALREADY_PUBLISHED_PATTERN.search(output))
+
+
+def parse_nupkg_version(filename: str) -> str | None:
+    """Return the version encoded in an `<Id>.<Version>.nupkg` filename, or None."""
+    match = _NUPKG_FILENAME_RE.match(filename)
+    return match["version"] if match else None
+
+
+def normalize_release_version(version: str) -> str:
+    """Strip whitespace and a leading `v` so a tag (`v1.16.0`) compares to a nupkg version."""
+    return version.strip().removeprefix("v")
+
+
+def assert_packages_match_release(nupkg_files: list[Path], expected_version: str) -> None:
+    """Fail before any push when a package carries a version other than the release being published.
+
+    ~keep This guard is what makes the `--skip-duplicate` behaviour below safe, and the two must
+    not be collapsed. Treating a duplicate as an idempotent re-run is legitimate ONLY when the
+    package's version IS the release version; it is a silent data-loss bug when the package is
+    stale. This exact shape shipped two broken releases on sibling registries: tree-sitter-language-pack
+    v1.16.0 on npm and liter-llm v1.19.0 on npm and PyPI each published a stale artifact, matched
+    the registry's already-published response, and reported success having shipped nothing for the
+    tag. publish-nuget had the same hole, widened by `--skip-duplicate` hiding it entirely.
+
+    ~keep Runs as a pre-flight over every package rather than inline per push because nuget.org
+    does not allow republishing a version: a stale package caught halfway through has already
+    pushed the packages ahead of it, and those cannot be corrected afterwards.
+    """
+    parsed = [(nupkg.name, parse_nupkg_version(nupkg.name)) for nupkg in nupkg_files]
+
+    # ~keep An unparseable filename fails rather than warns: it is exactly the blind spot the
+    # guard exists to close, since an unverifiable package is indistinguishable from a stale one.
+    unparseable = sorted(name for name, version in parsed if version is None)
+    if unparseable:
+        print(
+            f"Error: expected-version {expected_version} was supplied but no version could be "
+            f"parsed from {', '.join(unparseable)}, so the package(s) cannot be verified",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mismatched = sorted(f"{name} carries {version}" for name, version in parsed if version != expected_version)
+    if mismatched:
+        print(
+            f"Error: package(s) carry a version other than the release version {expected_version}: "
+            f"{'; '.join(mismatched)}",
+            file=sys.stderr,
+        )
+        print(
+            "The built packages are stale. Publishing them would ship the wrong version, or be "
+            "silently swallowed as a `--skip-duplicate` no-op.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Verified {len(parsed)} package(s) carry the release version {expected_version}")
+
+
+def warn_expected_version_missing() -> None:
+    """Warn that the stale-artifact guard is disabled because no expected-version was supplied."""
+    print(
+        "::warning::publish-nuget was invoked without `expected-version`; a stale package cannot "
+        "be detected and nuget.org's duplicate response will be treated as an idempotent skip. "
+        "Pass the release version from the caller to close this gap."
+    )
+
+
+def verify_release_versions(nupkg_files: list[Path], raw_expected_version: str) -> None:
+    """Apply the stale-artifact guard, or warn loudly that it has been left disabled.
+
+    ~keep Called before the API-key resolution and before the dry-run branch on purpose: a dry run
+    exists to catch a stale build ahead of the real release, so it must apply the same assertion
+    the real release does.
+    """
+    expected_version = normalize_release_version(raw_expected_version)
+    if expected_version:
+        assert_packages_match_release(nupkg_files, expected_version)
+    else:
+        warn_expected_version_missing()
+
+
+def build_push_command(nupkg: Path, api_key: str, source_url: str) -> list[str]:
+    """Build the `dotnet nuget push` command line for one package.
+
+    ~keep `--skip-duplicate` is retained deliberately: it is what lets an idempotent re-run of the
+    release succeed instead of failing on a 409. What makes it safe is the version pre-flight in
+    `assert_packages_match_release` — the package is already proven to carry the release version,
+    so a duplicate really is a re-push of this release rather than a stale package standing in for
+    it. Dropping either half reintroduces the silent skip.
+    """
+    return ["dotnet", "nuget", "push", str(nupkg), "--api-key", api_key, "--source", source_url, "--skip-duplicate"]
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -165,6 +277,8 @@ def main() -> None:
         print(f"Error: no .nupkg files found in {packages_dir}", file=sys.stderr)
         sys.exit(1)
 
+    verify_release_versions(nupkg_files, os.environ.get("INPUT_EXPECTED_VERSION", ""))
+
     print(f"Publishing {len(nupkg_files)} NuGet package(s)...")
 
     api_key = None
@@ -175,6 +289,7 @@ def main() -> None:
 
     failed = 0
     published = 0
+    skipped = 0
 
     for nupkg in nupkg_files:
         name = nupkg.name
@@ -186,29 +301,23 @@ def main() -> None:
             continue
 
         assert api_key is not None  # noqa: S101 - guarded above when not dry_run
-        exit_code, output = _run(
-            [
-                "dotnet",
-                "nuget",
-                "push",
-                str(nupkg),
-                "--api-key",
-                api_key,
-                "--source",
-                source_url,
-                "--skip-duplicate",
-            ]
-        )
+        exit_code, output = _run(build_push_command(nupkg, api_key, source_url))
 
         if is_publish_error(exit_code, output):
             print(f"  Error publishing {name}:", file=sys.stderr)
             print(output, file=sys.stderr)
             failed += 1
+        elif is_already_published(output):
+            # ~keep Reported as a skip, never as a publish. `--skip-duplicate` exits 0 on a
+            # duplicate, so claiming "Published" here made a release that shipped nothing look
+            # identical in the log to one that shipped everything.
+            print(f"  {name} already published, skipping")
+            skipped += 1
         else:
             print(f"  Published {name}")
             published += 1
 
-    print(f"Published: {published}, Failed: {failed}")
+    print(f"Published: {published}, Failed: {failed}, Skipped: {skipped}")
 
     if failed > 0:
         sys.exit(1)

@@ -55,6 +55,14 @@ inputs:
     description: "Perform a dry run without actually publishing"
     required: false
     default: "false"
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, the POM about
+      to be deployed must carry this version, and an "already exists" response from Maven Central
+      must name this version, or the action fails before the deploy. Leaving it empty preserves
+      the old behaviour but disables the stale-artifact guard, and the action warns loudly.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -108,5 +116,6 @@ runs:
         INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_SERVER_ID: ${{ inputs.server-id }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
       run: |
         python3 "${{ github.action_path }}/scripts/deploy.py"

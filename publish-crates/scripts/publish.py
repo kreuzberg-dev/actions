@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import NamedTuple
 
 sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
@@ -112,13 +113,19 @@ def _sparse_index_url(crate: str) -> str:
     return f"https://index.crates.io/{prefix}/{name}"
 
 
-def wait_for_index(crate: str, version: str) -> None:
-    """Poll the crates.io sparse index until ``crate@version`` is visible.
+def wait_for_index(crate: str, version: str) -> bool:
+    """Poll the crates.io sparse index for ``crate@version``; return whether it became visible.
 
     Cargo resolves dependency versions through the index; immediately after
     ``cargo publish`` returns, the new version is uploaded but not yet present
     in the sparse index. Downstream crates that depend on it cannot be
     packaged until propagation completes (typically 5-30 seconds).
+
+    ~keep Reports the outcome instead of warning and returning, because the two callers need
+    opposite severities and only the caller knows which applies. After a successful publish an
+    absent version is index propagation lag and stays a warning. After an ``already published``
+    skip it is the entire question being asked — the skip is legitimate only if the release
+    version really is on the registry — so absence there is fatal.
     """
     url = _sparse_index_url(crate)
     deadline = time.monotonic() + INDEX_POLL_TIMEOUT_SECONDS
@@ -138,13 +145,101 @@ def wait_for_index(crate: str, version: str) -> None:
         else:
             if f'"vers":"{version}"' in body:
                 print(f"  index has {crate}@{version}")
-                return
+                return True
         time.sleep(INDEX_POLL_INTERVAL_SECONDS)
+    return False
+
+
+def normalize_release_version(version: str) -> str:
+    """Strip whitespace and a leading `v` so a tag (`v1.16.0`) compares to a manifest version."""
+    return version.strip().removeprefix("v")
+
+
+def assert_crates_match_release(crate_versions: list[tuple[str, str | None]], expected_version: str) -> None:
+    """Fail before any publish when a crate's manifest carries a version other than the release's.
+
+    ``cargo publish -p <crate>`` ships whatever ``[package] version`` that crate's own Cargo.toml
+    declares. ``INPUT_VERSION`` otherwise only feeds path-dep injection and the index poll, and
+    :func:`inject_path_dep_versions` deliberately rewrites dependency sections only — never
+    ``[package]`` — so nothing else compares the manifest version to the release version.
+
+    ~keep This guard is what makes the `is_already_published` skip below safe, and the two must
+    not be collapsed. Skipping is legitimate ONLY when the crate's version IS the release version
+    (an idempotent re-run); it is silent data loss when the checkout is stale.
+    This exact shape shipped two broken releases on sibling registries: tree-sitter-language-pack
+    v1.16.0 on npm and liter-llm v1.19.0 on npm and PyPI each published a stale artifact, matched
+    the registry's already-published response, and reported success having shipped nothing for the
+    tag. publish-crates had the same unguarded skip; the guard is here so it never gets a turn.
+
+    ~keep Runs as a pre-flight over every crate rather than inline per crate because crates.io
+    publishes are irreversible: a stale manifest caught halfway through the list has already
+    shipped the crates ahead of it, and crates.io forbids republishing a version to correct them.
+    """
+    unreadable = sorted(crate for crate, crate_version in crate_versions if crate_version is None)
+    if unreadable:
+        print(
+            f"Error: `cargo metadata` reported no version for {', '.join(unreadable)}, so the "
+            f"crate(s) cannot be verified against the release version {expected_version}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mismatched = sorted(
+        f"{crate} carries {crate_version}"
+        for crate, crate_version in crate_versions
+        if crate_version != expected_version
+    )
+    if mismatched:
+        print(
+            f"Error: crate manifest(s) carry a version other than the release version {expected_version}: "
+            f"{'; '.join(mismatched)}",
+            file=sys.stderr,
+        )
+        print(
+            "The checked-out manifests are stale. Publishing them would ship the wrong version, or be "
+            "silently swallowed as an 'already published' skip.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Verified {len(crate_versions)} crate(s) carry the release version {expected_version}")
+
+
+def warn_if_index_lags(crate: str, version: str) -> None:
+    """Warn, without failing, when a just-published version has not reached the index yet.
+
+    The upload was confirmed by ``cargo publish`` itself, so an absent index entry here is
+    propagation lag and must not fail the release.
+    """
+    if wait_for_index(crate, version):
+        return
     print(
         f"  WARNING: {crate}@{version} not visible in crates.io index after "
         f"{INDEX_POLL_TIMEOUT_SECONDS}s; proceeding anyway",
         file=sys.stderr,
     )
+
+
+def confirm_already_published_skip(crate: str, version: str, output: str) -> None:
+    """Fail unless the crates.io index really carries ``crate@version`` behind an already-published skip.
+
+    ~keep The skip path must corroborate the release version against the index, and its timeout
+    must be fatal here even though the same poll is only a warning after a successful publish.
+    ``already uploaded|already exists`` also matches failures that have nothing to do with this
+    version, and a stale manifest makes crates.io report the conflict for the version the manifest
+    carries rather than the one being released — which is how a release reports success having
+    published nothing.
+    """
+    if wait_for_index(crate, version):
+        return
+    print(
+        f"  Error: cargo reported {crate} as already published, but {crate}@{version} is not in "
+        f"the crates.io index after {INDEX_POLL_TIMEOUT_SECONDS}s. The skip cannot be attributed "
+        f"to this release, so nothing was published for {version}.",
+        file=sys.stderr,
+    )
+    print(output, file=sys.stderr)
+    sys.exit(1)
 
 
 DEPENDENCY_SECTION_PATTERN = re.compile(
@@ -407,12 +502,19 @@ def inject_path_dep_versions(manifest: str, version: str) -> str:
     return "".join(output)
 
 
-def _discover_manifest_paths(workspace_manifest_args: list[str]) -> dict[str, str]:
-    """Return a ``{crate_name: manifest_path}`` mapping from ``cargo metadata``.
+class WorkspacePackage(NamedTuple):
+    """A workspace member's manifest location and the ``[package] version`` it declares."""
+
+    manifest_path: str
+    version: str
+
+
+def _discover_workspace_packages(workspace_manifest_args: list[str]) -> dict[str, WorkspacePackage]:
+    """Return a ``{crate_name: WorkspacePackage}`` mapping from ``cargo metadata``.
 
     ``workspace_manifest_args`` is the existing ``--manifest-path`` list (may be empty).
-    Falls back to an empty dict if cargo metadata cannot be invoked, in which case
-    callers should fall back to skipping the injection rather than failing the publish.
+    Falls back to an empty dict if cargo metadata cannot be invoked; callers then treat every
+    crate version as unknown rather than assuming it matches the release.
     """
     cmd = ["cargo", "metadata", "--format-version", "1", "--no-deps", *workspace_manifest_args]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -428,7 +530,10 @@ def _discover_manifest_paths(workspace_manifest_args: list[str]) -> dict[str, st
     except json.JSONDecodeError as exc:
         print(f"  WARNING: `cargo metadata` returned invalid JSON: {exc}", file=sys.stderr)
         return {}
-    return {package["name"]: package["manifest_path"] for package in data.get("packages", [])}
+    return {
+        package["name"]: WorkspacePackage(package["manifest_path"], package["version"])
+        for package in data.get("packages", [])
+    }
 
 
 @contextlib.contextmanager
@@ -496,7 +601,7 @@ def publish_crate(crate: str, manifest_args: list[str]) -> tuple[int, str]:
 
 def main() -> None:
     crates_input = os.environ.get("INPUT_CRATES", "")
-    version = os.environ.get("INPUT_VERSION", "")
+    version = normalize_release_version(os.environ.get("INPUT_VERSION", ""))
     dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
     manifest_path = os.environ.get("INPUT_MANIFEST_PATH", "")
 
@@ -510,13 +615,21 @@ def main() -> None:
     crate_list = parse_crate_list(crates_input)
     manifest_args = build_manifest_args(manifest_path)
     total = len(crate_list)
-    crate_manifests = _discover_manifest_paths(manifest_args)
+    workspace_packages = _discover_workspace_packages(manifest_args)
+
+    # ~keep Runs before the dry-run branch below on purpose: a dry run exists to catch a stale
+    # checkout before the real release, so it must apply the same version assertion.
+    assert_crates_match_release(
+        [(crate, package.version if (package := workspace_packages.get(crate)) else None) for crate in crate_list],
+        version,
+    )
 
     new_crates_needing_manual_publish: list[str] = []
 
     for index, crate in enumerate(crate_list, start=1):
         print(f"Publishing {crate} ({index}/{total})...")
-        crate_manifest = crate_manifests.get(crate)
+        workspace_package = workspace_packages.get(crate)
+        crate_manifest = workspace_package.manifest_path if workspace_package else None
 
         if dry_run:
             print(f"  [dry-run] cargo publish -p {crate} --dry-run")
@@ -530,10 +643,10 @@ def main() -> None:
 
         if exit_code == 0:
             print(f"  Published {crate}@{version}")
-            wait_for_index(crate, version)
+            warn_if_index_lags(crate, version)
         elif is_already_published(output):
             print(f"  {crate}@{version} already published, skipping")
-            wait_for_index(crate, version)
+            confirm_already_published_skip(crate, version, output)
         elif is_new_crate_trusted_publishing(output):
             new_crates_needing_manual_publish.append(crate)
             print(

@@ -218,6 +218,61 @@ def confirm_registry_presence(identities: list[tuple[str, str]]) -> list[str]:
     return unconfirmed
 
 
+def normalize_release_version(version: str) -> str:
+    """Strip whitespace and a leading `v` so a tag (`v1.16.0`) compares to a manifest version."""
+    return version.strip().removeprefix("v")
+
+
+def assert_artifacts_match_release(identities: list[tuple[str, str | None]], expected_version: str) -> None:
+    """Fail before any publish when an artifact carries a version other than the release's.
+
+    ~keep This guard is what makes the `is_already_published` skip below safe, and the two must
+    not be collapsed. Skipping is legitimate ONLY when the artifact's version IS the release
+    version (an idempotent re-run); it is a silent data-loss bug when the artifact is stale.
+    tree-sitter-language-pack v1.16.0 published a bundle still carrying 1.15.12 manifests, npm
+    answered "cannot publish over the previously published versions: 1.15.12", and the job read
+    that as an idempotent skip and concluded success having shipped nothing for the tag.
+
+    ~keep Runs as a pre-flight over every artifact rather than inline per package because npm
+    publishes are irreversible: a stale bundle caught halfway through has already shipped the
+    packages ahead of it, and npm forbids republishing a version to correct them.
+    """
+    unreadable = sorted(label for label, version in identities if version is None)
+    if unreadable:
+        print(
+            f"Error: expected-version {expected_version} was supplied but the version of "
+            f"{', '.join(unreadable)} could not be read, so the artifacts cannot be verified",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mismatched = sorted(f"{label} carries {version}" for label, version in identities if version != expected_version)
+    if mismatched:
+        print(
+            f"Error: artifact(s) carry a version other than the release version {expected_version}: "
+            f"{'; '.join(mismatched)}",
+            file=sys.stderr,
+        )
+        print(
+            "The built artifacts are stale. Publishing them would ship the wrong version, or be "
+            "silently swallowed as an 'already published' skip.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Verified {len(identities)} artifact(s) carry the release version {expected_version}")
+
+
+def warn_expected_version_missing() -> None:
+    """Warn that the stale-artifact guard is disabled because no expected-version was supplied."""
+    print(
+        "::warning::publish-npm was invoked without `expected-version`; a stale artifact cannot "
+        "be detected and npm's 'cannot publish over the previously published versions' response "
+        "will be treated as an idempotent skip. Pass the release version from the caller to "
+        "close this gap."
+    )
+
+
 def _run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=False)
     return result.returncode, result.stdout + result.stderr
@@ -304,12 +359,16 @@ def _strip_empty_npm_auth_token() -> None:
             print(f"No _authToken line found in {npmrc_path} (file present, no strip needed)")
 
 
-def publish_package_directory(package_dir: str, flags: list[str], *, dry_run: bool) -> None:
+def publish_package_directory(package_dir: str, flags: list[str], *, dry_run: bool, expected_version: str = "") -> None:
     """Publish a single package from a working directory."""
     pkg_path = Path(package_dir)
     if not pkg_path.is_dir():
         print(f"Error: package directory not found: {package_dir}", file=sys.stderr)
         sys.exit(1)
+
+    manifest = json.loads((pkg_path / "package.json").read_text())
+    if expected_version:
+        assert_artifacts_match_release([(package_dir, manifest.get("version"))], expected_version)
 
     print(f"Publishing from directory: {package_dir}")
     exit_code, output = _run_publish_with_retry(["npm", "publish", ".", *flags], cwd=pkg_path)
@@ -327,11 +386,12 @@ def publish_package_directory(package_dir: str, flags: list[str], *, dry_run: bo
     if dry_run:
         return
 
-    manifest = json.loads((pkg_path / "package.json").read_text())
     confirm_registry_presence([(manifest["name"], manifest["version"])])
 
 
-def publish_tgz_directory(packages_dir: str, flags: list[str], npm_tag: str, *, dry_run: bool) -> None:
+def publish_tgz_directory(
+    packages_dir: str, flags: list[str], npm_tag: str, *, dry_run: bool, expected_version: str = ""
+) -> None:
     """Publish every non-stub .tgz under `packages_dir`, then confirm the accepted ones.
 
     Publishing runs to completion before any registry confirmation so that no package's
@@ -346,6 +406,15 @@ def publish_tgz_directory(packages_dir: str, flags: list[str], npm_tag: str, *, 
     if not tgz_files:
         print(f"Error: no .tgz files found in {packages_dir}", file=sys.stderr)
         sys.exit(1)
+
+    # ~keep Every tarball is checked before the first publish, and stubs are checked too: a stub
+    # skipped for having no .node still proves the build that produced it, so a stale version on
+    # one is the same evidence of a stale bundle as a stale version on a publishable package.
+    if expected_version:
+        identities = [
+            (tgz.name, identity[1] if (identity := read_package_identity(tgz)) else None) for tgz in tgz_files
+        ]
+        assert_artifacts_match_release(identities, expected_version)
 
     print(f"Publishing {len(tgz_files)} package(s) with tag '{npm_tag}'...")
 
@@ -396,6 +465,10 @@ def main() -> None:
     access = os.environ.get("INPUT_ACCESS", "public")
     provenance = os.environ.get("INPUT_PROVENANCE", "true").lower() == "true"
     dry_run = os.environ.get("INPUT_DRY_RUN", "false").lower() == "true"
+    expected_version = normalize_release_version(os.environ.get("INPUT_EXPECTED_VERSION", ""))
+
+    if not expected_version:
+        warn_expected_version_missing()
 
     _strip_empty_npm_auth_token()
 
@@ -403,9 +476,9 @@ def main() -> None:
     flags = build_publish_flags(access, npm_tag, provenance, dry_run)
 
     if mode == "dir":
-        publish_package_directory(package_dir, flags, dry_run=dry_run)
+        publish_package_directory(package_dir, flags, dry_run=dry_run, expected_version=expected_version)
     else:
-        publish_tgz_directory(packages_dir, flags, npm_tag, dry_run=dry_run)
+        publish_tgz_directory(packages_dir, flags, npm_tag, dry_run=dry_run, expected_version=expected_version)
 
 
 if __name__ == "__main__":

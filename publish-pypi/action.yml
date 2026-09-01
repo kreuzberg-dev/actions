@@ -18,6 +18,13 @@ inputs:
     description: "Override the upload URL (e.g. https://test.pypi.org/legacy/)"
     required: false
     default: "https://upload.pypi.org/legacy/"
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, every
+      dist file must carry this version or the action fails. Leaving it empty preserves the
+      old behaviour but disables the stale-artifact guard, and the action warns loudly.
+    required: false
+    default: ""
 
 outputs:
   published:
@@ -37,6 +44,7 @@ runs:
         INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_REPOSITORY_URL: ${{ inputs.repository-url }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
       run: python3 "${{ github.action_path }}/scripts/publish.py"
 
     - name: Install uv

@@ -36,6 +36,14 @@ inputs:
     description: "Perform a dry run without actually publishing"
     required: false
     default: "false"
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, every
+      package.json about to be published must carry this version or the action fails before
+      the first publish. Leaving it empty preserves the old behaviour but disables the
+      stale-artifact guard, and the action warns loudly.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -66,5 +74,6 @@ runs:
         INPUT_ACCESS: ${{ inputs.access }}
         INPUT_PROVENANCE: ${{ inputs.provenance }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
       run: |
         python3 "${GITHUB_ACTION_PATH}/scripts/publish.py"

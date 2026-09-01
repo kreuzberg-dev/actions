@@ -358,3 +358,100 @@ def _fake_urlopen(status: int):
         return _Response()
 
     return _urlopen
+
+
+def test_normalize_release_version_strips_tag_prefix():
+    assert npm_mod.normalize_release_version("v1.16.0") == "1.16.0"
+    assert npm_mod.normalize_release_version("  1.16.0 ") == "1.16.0"
+    assert npm_mod.normalize_release_version("") == ""
+
+
+def test_assert_artifacts_match_release_accepts_matching_versions():
+    npm_mod.assert_artifacts_match_release([("a.tgz", "1.16.0"), ("b.tgz", "1.16.0")], "1.16.0")
+
+
+def test_assert_artifacts_match_release_fails_on_stale_artifact():
+    """tree-sitter-language-pack v1.16.0 shipped a bundle carrying 1.15.12 manifests."""
+    with pytest.raises(SystemExit) as exc_info:
+        npm_mod.assert_artifacts_match_release([("plugin.tgz", "1.15.12")], "1.16.0")
+    assert exc_info.value.code == 1
+
+
+def test_assert_artifacts_match_release_fails_when_version_unreadable():
+    with pytest.raises(SystemExit) as exc_info:
+        npm_mod.assert_artifacts_match_release([("corrupt.tgz", None)], "1.16.0")
+    assert exc_info.value.code == 1
+
+
+def test_publish_tgz_directory_refuses_a_stale_bundle_before_publishing_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The stale bundle must fail the job, and must not publish the packages ahead of it.
+
+    npm forbids republishing a version, so a mismatch caught mid-loop is unrecoverable.
+    """
+    _make_tgz(tmp_path / "a.tgz", {"name": "@s/a", "version": "1.16.0"}, with_node=True)
+    _make_tgz(tmp_path / "b.tgz", {"name": "@s/b", "version": "1.15.12"}, with_node=True)
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(npm_mod, "_run_publish_with_retry", lambda cmd, cwd=None: calls.append(cmd) or (0, ""))
+    # Stubbed so a regression that lets the stale bundle through fails here instead of
+    # blocking for the full REGISTRY_CHECK_WINDOW_SECONDS against the real registry.
+    monkeypatch.setattr(npm_mod, "confirm_registry_presence", lambda identities: [])
+
+    with pytest.raises(SystemExit) as exc_info:
+        npm_mod.publish_tgz_directory(str(tmp_path), [], "latest", dry_run=False, expected_version="1.16.0")
+
+    assert exc_info.value.code == 1
+    assert calls == [], "no package may be published once a stale artifact is present"
+
+
+def test_publish_tgz_directory_still_skips_an_already_published_release_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """An idempotent re-run of the version being released stays a success-with-skip."""
+    _make_tgz(tmp_path / "a.tgz", {"name": "@s/a", "version": "1.16.0"}, with_node=True)
+
+    conflict = "npm error 403 Forbidden - You cannot publish over the previously published versions: 1.16.0"
+    monkeypatch.setattr(npm_mod, "_run_publish_with_retry", lambda cmd, cwd=None: (1, conflict))
+    monkeypatch.setattr(npm_mod, "confirm_registry_presence", lambda identities: [])
+
+    npm_mod.publish_tgz_directory(str(tmp_path), [], "latest", dry_run=False, expected_version="1.16.0")
+
+    assert "already published, skipping" in capsys.readouterr().out
+
+
+def test_publish_package_directory_refuses_a_stale_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "package.json").write_text(json.dumps({"name": "@s/p", "version": "1.15.12"}))
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(npm_mod, "_run_publish_with_retry", lambda cmd, cwd=None: calls.append(cmd) or (0, ""))
+    monkeypatch.setattr(npm_mod, "confirm_registry_presence", lambda identities: [])
+
+    with pytest.raises(SystemExit) as exc_info:
+        npm_mod.publish_package_directory(str(pkg), [], dry_run=False, expected_version="1.16.0")
+
+    assert exc_info.value.code == 1
+    assert calls == []
+
+
+def test_main_warns_when_expected_version_is_not_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """The unsupplied expected-version is the blind spot, so it must be loud."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "package.json").write_text(json.dumps({"name": "@s/p", "version": "1.16.0"}))
+
+    monkeypatch.setenv("INPUT_PACKAGE_DIR", str(pkg))
+    monkeypatch.delenv("INPUT_PACKAGES_DIR", raising=False)
+    monkeypatch.setenv("INPUT_EXPECTED_VERSION", "")
+    monkeypatch.setattr(npm_mod, "_strip_empty_npm_auth_token", lambda: None)
+    monkeypatch.setattr(npm_mod, "_run_publish_with_retry", lambda cmd, cwd=None: (0, ""))
+    monkeypatch.setattr(npm_mod, "confirm_registry_presence", lambda identities: [])
+
+    npm_mod.main()
+
+    assert "::warning::" in capsys.readouterr().out
