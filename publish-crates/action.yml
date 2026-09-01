@@ -8,7 +8,9 @@ inputs:
     description: "Space-separated list of crate names to publish (in dependency order)"
     required: true
   version:
-    description: "Version being published"
+    description: >
+      Version being published (a leading `v` and a `-dryrun-<sha>` suffix are stripped). Every
+      named crate's manifest must declare it before anything is published.
     required: true
   dry-run:
     description: "Perform a dry run without actually publishing"

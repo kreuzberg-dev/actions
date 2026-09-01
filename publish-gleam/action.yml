@@ -32,8 +32,9 @@ inputs:
     default: "false"
   expected-version:
     description: >
-      Version of the release being published (a leading `v` is stripped). When set, the
-      gleam.toml version must equal this or the action fails before publishing.
+      Version of the release being published (a leading `v` and a `-dryrun-<sha>` suffix
+      are stripped). When set, the gleam.toml version must equal this or the action fails
+      before publishing.
       Leaving it empty preserves the old behaviour but disables the stale-artifact guard,
       and the action warns loudly.
     required: false
@@ -83,6 +84,11 @@ runs:
           exit 0
         fi
         expected="${INPUT_EXPECTED_VERSION#v}"
+        # ~keep A dry run synthesizes its tag as `<version>-dryrun-<sha>` (see
+        # prepare-release-metadata), a version no manifest will ever hold. Strip the suffix
+        # rather than skipping the assertion on dry runs: a dry run is exactly where a stale
+        # checkout should surface, while nothing has been published yet.
+        expected="${expected%%-dryrun-*}"
         cd "$PACKAGE_DIR"
         # Same parse as the dry-run summary below, with `\s` spelled as the POSIX class so it
         # also works under BSD sed (where `\s` matches nothing and swallows the whole line).

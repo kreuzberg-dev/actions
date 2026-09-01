@@ -111,6 +111,29 @@ def test_normalize_release_version_strips_tag_prefix():
     assert crates_mod.normalize_release_version("") == ""
 
 
+def test_normalize_release_version_strips_a_dry_run_tag_suffix():
+    """A dry run passes `<version>-dryrun-<sha>`; no crate manifest ever declares that."""
+    assert crates_mod.normalize_release_version("v1.16.0-dryrun-abc1234") == "1.16.0"
+    assert crates_mod.normalize_release_version("1.16.0-dryrun-abc1234") == "1.16.0"
+
+
+def test_normalize_release_version_keeps_a_real_prerelease():
+    """Only the literal `-dryrun-` marker is stripped, never an ordinary prerelease segment."""
+    assert crates_mod.normalize_release_version("v1.16.0-rc.1") == "1.16.0-rc.1"
+    assert crates_mod.normalize_release_version("1.16.0-alpha.2") == "1.16.0-alpha.2"
+
+
+def test_a_dry_run_still_asserts_the_manifest_version():
+    """Stripping the suffix must keep the assertion running on dry runs, not disable it."""
+    normalized = crates_mod.normalize_release_version("v1.16.0-dryrun-abc1234")
+
+    crates_mod.assert_crates_match_release([("core", "1.16.0")], normalized)
+
+    with pytest.raises(SystemExit) as exc_info:
+        crates_mod.assert_crates_match_release([("core", "1.15.12")], normalized)
+    assert exc_info.value.code == 1
+
+
 def test_inject_path_dep_versions_leaves_the_package_version_untouched():
     """Version injection rewrites dependency sections only, so a stale `[package] version` survives it."""
     manifest = '[package]\nname = "demo"\nversion = "1.15.12"\n\n[dependencies]\ninner = { path = "../inner" }\n'

@@ -130,3 +130,42 @@ def test_build_fails_when_no_tarball_carries_the_release_version(tmp_path):
     assert result.returncode == 1
     assert "did not produce a .tar.gz for version 1.2.3" in result.stdout
     assert outputs == {}
+
+
+@pytest.mark.parametrize("version", ["1.2.3-dryrun-abc1234", "v1.2.3-dryrun-abc1234"])
+def test_a_dry_run_tag_suffix_is_stripped_rather_than_skipping_the_assertion(tmp_path, version):
+    """A dry run passes `<version>-dryrun-<sha>`; DESCRIPTION will never carry that."""
+    _package_dir(tmp_path, description_version="1.2.3")
+
+    result, _ = _execute(_step_script(name=VERIFY_STEP_NAME), tmp_path, version=version)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Verified DESCRIPTION carries the release version 1.2.3" in result.stdout
+
+
+def test_a_dry_run_of_a_stale_checkout_still_fails(tmp_path):
+    """Stripping the suffix must not become a way to opt out of the guard."""
+    _package_dir(tmp_path, description_version="1.2.2")
+
+    result, _ = _execute(_step_script(name=VERIFY_STEP_NAME), tmp_path, version="1.2.3-dryrun-abc1234")
+
+    assert result.returncode == 1
+    assert "the release being published is 1.2.3" in result.stdout
+
+
+def test_the_build_step_selects_the_tarball_for_the_stripped_version(tmp_path):
+    """Both steps must strip identically, or the build looks for a tarball that cannot exist."""
+    package_dir = _package_dir(tmp_path, description_version="1.2.3")
+
+    result, outputs = _execute(_step_script(step_id=BUILD_STEP_ID), tmp_path, version="v1.2.3-dryrun-abc1234")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert outputs["archive-path"] == str(package_dir / "xbergr_1.2.3.tar.gz")
+
+
+def test_a_real_prerelease_is_not_mistaken_for_a_dry_run_tag(tmp_path):
+    _package_dir(tmp_path, description_version="1.2.3")
+
+    result, _ = _execute(_step_script(name=VERIFY_STEP_NAME), tmp_path, version="1.2.3-rc.1")
+
+    assert result.returncode == 1, "a -rc.1 release must not silently match a 1.2.3 DESCRIPTION"

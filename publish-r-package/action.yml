@@ -13,8 +13,9 @@ inputs:
     default: "packages/r"
   version:
     description: >
-      Version of the release being published (a leading `v` is stripped). The package's
-      DESCRIPTION must declare it, and the uploaded tarball is selected by it.
+      Version of the release being published (a leading `v` and a `-dryrun-<sha>` suffix
+      are stripped). The package's DESCRIPTION must declare it, and the uploaded tarball is
+      selected by it.
     required: true
   tag:
     description: "Git tag for the release"
@@ -90,6 +91,11 @@ runs:
         # the release tag, and the job reports success having shipped nothing for the release.
         # Checked after the dependency rewrite so it sees the DESCRIPTION that is actually built.
         expected="${INPUT_VERSION#v}"
+        # ~keep A dry run synthesizes its tag as `<version>-dryrun-<sha>` (see
+        # prepare-release-metadata), a version no manifest will ever hold. Strip the suffix
+        # rather than skipping the assertion on dry runs: a dry run is exactly where a stale
+        # checkout should surface, while nothing has been published yet.
+        expected="${expected%%-dryrun-*}"
         cd "${GITHUB_WORKSPACE}/${INPUT_PACKAGE_DIR}"
         version=$(sed -n 's/^Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' DESCRIPTION | head -n 1)
         if [ -z "${version}" ]; then
@@ -111,6 +117,7 @@ runs:
       run: |
         set -euo pipefail
         expected="${INPUT_VERSION#v}"
+        expected="${expected%%-dryrun-*}"
         cd "${GITHUB_WORKSPACE}/${INPUT_PACKAGE_DIR}"
         # Build source distribution (.tar.gz)
         R CMD build .

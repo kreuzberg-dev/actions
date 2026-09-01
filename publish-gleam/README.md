@@ -71,7 +71,7 @@ jobs:
 | `gleam-version` | no | `1.18` | Gleam version. |
 | `replace` | no | `true` | Pass `--replace` to allow replacing an existing version. |
 | `dry-run` | no | `false` | Skip the actual publish; print what would happen. |
-| `expected-version` | no | `""` | Release version (leading `v` stripped). When set, `gleam.toml` must declare it or the action fails before publishing. |
+| `expected-version` | no | `""` | Release version (leading `v` and a `-dryrun-<sha>` suffix stripped). When set, `gleam.toml` must declare it or the action fails before publishing. |
 
 ## Outputs
 
