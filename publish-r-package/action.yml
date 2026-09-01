@@ -12,7 +12,9 @@ inputs:
     required: false
     default: "packages/r"
   version:
-    description: "Package version (used in artifact naming)"
+    description: >
+      Version of the release being published (a leading `v` is stripped). The package's
+      DESCRIPTION must declare it, and the uploaded tarball is selected by it.
     required: true
   tag:
     description: "Git tag for the release"
@@ -75,22 +77,58 @@ runs:
         Rscript -e "devtools::install_dev_deps()" || \
         Rscript -e "install.packages(c('devtools', 'roxygen2'), repos='https://cloud.r-project.org')"
 
+    - name: Verify DESCRIPTION carries the release version
+      shell: bash
+      env:
+        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        # ~keep `R CMD build` names the tarball from the DESCRIPTION `Version:` field and never
+        # looks at the `version` input, so nothing else in this action compares the two. Without
+        # this check a stale checkout builds a tarball for some other version and uploads it under
+        # the release tag, and the job reports success having shipped nothing for the release.
+        # Checked after the dependency rewrite so it sees the DESCRIPTION that is actually built.
+        expected="${INPUT_VERSION#v}"
+        cd "${GITHUB_WORKSPACE}/${INPUT_PACKAGE_DIR}"
+        version=$(sed -n 's/^Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' DESCRIPTION | head -n 1)
+        if [ -z "${version}" ]; then
+          echo "::error::no Version field could be read from ${INPUT_PACKAGE_DIR}/DESCRIPTION, so the package cannot be verified against the release version ${expected}"
+          exit 1
+        fi
+        if [ "${version}" != "${expected}" ]; then
+          echo "::error::DESCRIPTION declares version ${version} but the release being published is ${expected}. The checkout is stale; building it would upload the wrong tarball under the release tag."
+          exit 1
+        fi
+        echo "Verified DESCRIPTION carries the release version ${expected}"
+
     - name: Build R package tarball
       id: build
       shell: bash
       env:
         INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
+        expected="${INPUT_VERSION#v}"
         cd "${GITHUB_WORKSPACE}/${INPUT_PACKAGE_DIR}"
         # Build source distribution (.tar.gz)
         R CMD build .
-        # Find the generated .tar.gz
-        archive=$(ls -1 *.tar.gz 2>/dev/null | head -n 1)
-        if [ -z "${archive}" ]; then
-          echo "::error::R CMD build did not produce a .tar.gz in ${INPUT_PACKAGE_DIR}"
+        # `R CMD build` writes <Package>_<Version>.tar.gz. Select by the release version rather
+        # than taking the first of `ls`, which picks an arbitrary tarball whenever the directory
+        # holds more than one — and so can upload a leftover build under the release tag.
+        shopt -s nullglob
+        archives=(*_"${expected}".tar.gz)
+        shopt -u nullglob
+        if [ "${#archives[@]}" -eq 0 ]; then
+          echo "::error::R CMD build did not produce a .tar.gz for version ${expected} in ${INPUT_PACKAGE_DIR}"
           exit 1
         fi
+        if [ "${#archives[@]}" -gt 1 ]; then
+          echo "::error::multiple tarballs in ${INPUT_PACKAGE_DIR} match version ${expected}: ${archives[*]}"
+          exit 1
+        fi
+        archive="${archives[0]}"
         full_path="${GITHUB_WORKSPACE}/${INPUT_PACKAGE_DIR}/${archive}"
         echo "archive-path=${full_path}" >>"${GITHUB_OUTPUT}"
         echo "Built R package: ${archive}"
@@ -102,7 +140,6 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         TAG: ${{ inputs.tag }}
-        VERSION: ${{ inputs.version }}
         ARCHIVE_PATH: ${{ steps.build.outputs.archive-path }}
       run: |
         set -euo pipefail
