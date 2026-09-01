@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-01
+
 ### Fixed
 
 - `validate-versions` asserts that the canonical `Cargo.toml` version is the version being
