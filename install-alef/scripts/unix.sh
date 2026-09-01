@@ -44,10 +44,24 @@ install_from_release() {
 	target="$(detect_target)"
 	local url="https://github.com/xberg-io/alef/releases/download/v${version}/alef-${target}.tar.gz"
 
+	# ~keep Authenticate the asset download when a token is available. The action already puts
+	# `GITHUB_TOKEN` in this script's environment and resolve.sh already uses it, but this
+	# download did not: unauthenticated github.com requests from shared runners share a low
+	# per-IP rate limit, and a 403 here is indistinguishable from any other failure -- it
+	# exhausts the retries and drops through to the `cargo install --git` fallback, which
+	# succeeds. That is precisely the shape that hid alef v0.79.5 shipping zero release
+	# assets: Linux and macOS legs "passed" on the fallback while Windows, which never caches,
+	# failed outright. curl drops the header on a cross-host redirect unless
+	# --location-trusted is given, so the token does not follow to the asset CDN.
+	local auth_args=()
+	if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+		auth_args=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+	fi
+
 	while [[ $attempt -le $max_attempts ]]; do
 		echo "Installing alef v${version} for ${target} (attempt ${attempt}/${max_attempts})..."
 
-		if curl --location \
+		if curl --location "${auth_args[@]}" \
 			--connect-timeout 10 \
 			--max-time 60 \
 			--retry 2 \
