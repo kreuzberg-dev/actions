@@ -3,9 +3,17 @@ description: |
   Check that every language manifest declares the same version as the canonical
   Cargo.toml workspace version. Manifest discovery is driven by alef.toml, so
   the consuming repo must have one.
+
+  Pass `version` to additionally assert that the canonical version IS the version
+  being released. Without it the action only proves the manifests agree with each
+  other, which a stale checkout satisfies just as well as a correct one.
 inputs:
   version:
-    description: "Expected version (without v prefix). Optional — alef reads the canonical version from Cargo.toml."
+    description: >
+      Version of the release being validated (a leading `v` and a `-dryrun-<sha>` suffix are
+      stripped). When set, the canonical Cargo.toml version must equal it or the action fails.
+      Leaving it empty preserves the old behaviour: consistency between manifests is checked,
+      but nothing ties them to the version actually being released.
     required: false
     default: ""
   manifest-paths:
@@ -58,8 +66,43 @@ runs:
         fi
         valid=$(echo "${json}" | jq -r '.ok // false')
         mismatches=$(echo "${json}" | jq -c '[.checks[] | select(.ok == false)]')
+
+        # ~keep `.ok` compares every language manifest against the canonical Cargo.toml and
+        # nothing else, so it is satisfied by a stale checkout in which all manifests agree on
+        # the PREVIOUS version. Five product repos call this action as their release gate and
+        # pass the version being released; until this block existed that input was declared,
+        # wired into the step env, and then never read, so every caller believed an assertion
+        # was happening that no code performed. Tying the canonical version to the release
+        # version is the only part of this action that can catch a stale checkout.
+        release_mismatch=""
+        canonical=""
+        expected=$(printf '%s' "${EXPECTED_VERSION}" | tr -d '[:space:]')
+        if [[ -n "${expected}" ]]; then
+          expected="${expected#v}"
+          # ~keep A dry run synthesizes its tag as `<version>-dryrun-<sha>` (see
+          # prepare-release-metadata), a version no manifest will ever hold. Strip the suffix
+          # rather than skipping the assertion on dry runs: a dry run is exactly where a stale
+          # checkout should surface, while there is still no tag and nothing has been published.
+          expected="${expected%%-dryrun-*}"
+          canonical=$(echo "${json}" | jq -r '.canonical // ""')
+          if [[ -z "${canonical}" || "${canonical}" == "null" ]]; then
+            echo "::error::version ${expected} was supplied but alef reported no canonical version, so the release version cannot be verified" >&2
+            exit 1
+          fi
+          if [[ "${canonical}" != "${expected}" ]]; then
+            valid="false"
+            release_mismatch=$(jq -nc --arg expected "${expected}" --arg found "${canonical}" \
+              '{manifest: "Cargo.toml", expected: $expected, found: $found, ok: false}')
+            mismatches=$(echo "${mismatches}" | jq -c --argjson entry "${release_mismatch}" '. + [$entry]')
+          fi
+        fi
+
         echo "valid=${valid}" >>"$GITHUB_OUTPUT"
         echo "mismatches=${mismatches}" >>"$GITHUB_OUTPUT"
+
+        if [[ -n "${release_mismatch}" ]]; then
+          echo "::error::the canonical version is ${canonical} but the release being validated is ${expected}. Every manifest agrees with a version that is not the one being published; the checkout is stale." >&2
+        fi
         if [[ "${valid}" != "true" ]]; then
           echo "::error::Version mismatches detected:" >&2
           echo "${mismatches}" | jq . >&2
