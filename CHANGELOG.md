@@ -4,6 +4,8 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-09-01
+
 ### Added
 
 - `publish-npm`, `publish-pypi`, `publish-maven`, `publish-nuget`, `publish-rubygems`,
