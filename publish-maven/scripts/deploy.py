@@ -139,7 +139,7 @@ def assert_pom_matches_release(pom_version: str | None, expected_version: str) -
         )
         return False
 
-    if pom_version != expected_version:
+    if normalize_release_version(pom_version) != expected_version:
         print(
             f"Error: the POM declares version {pom_version}, but the release being published is {expected_version}",
             file=sys.stderr,

@@ -66,3 +66,53 @@ def test_a_plain_release_version_passes_through_unchanged(action: str, rel: str)
     normalize = _load(action, rel).normalize_release_version
     assert normalize("v3.12.0") == "3.12.0"
     assert normalize("  3.12.0  ") == "3.12.0"
+
+
+# --- The guards themselves, not just the helper --------------------------------------------
+#
+# ~keep The three tests above pin `normalize_release_version` in isolation, and they all passed
+# while every NuGet dry run failed. The function was never the bug: the CALL SITE compared a
+# normalized `expected_version` against a RAW artifact version, so a dry run packed
+# `3.12.0-dryrun-af0ed25` (the workflow passes the synthesized version straight to
+# `dotnet pack -p:Version=`) and the guard rejected a package that was entirely correct --
+# reporting "the built packages are stale" about the only package it could possibly have built.
+# Observed on html-to-markdown run 33484573916. Testing a pure helper proves the helper; only
+# driving the guard proves the comparison, so these do that.
+
+
+def _nuget(tmp_path, *names):
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    return sorted(tmp_path.glob("*.nupkg"))
+
+
+def test_nuget_guard_accepts_a_dry_run_suffixed_package(tmp_path) -> None:
+    module = _load("publish-nuget", "scripts/publish.py")
+    files = _nuget(tmp_path, "XbergIo.HtmlToMarkdown.3.12.0-dryrun-af0ed25.nupkg")
+    # Must not raise: the package carries exactly the version the dry run told pack to use.
+    module.verify_release_versions(files, "3.12.0-dryrun-af0ed25")
+
+
+def test_nuget_guard_still_rejects_a_genuinely_stale_package(tmp_path) -> None:
+    """The dry-run tolerance must not blunt the guard it exists to keep running."""
+    module = _load("publish-nuget", "scripts/publish.py")
+    files = _nuget(tmp_path, "XbergIo.HtmlToMarkdown.3.11.6.nupkg")
+    with pytest.raises(SystemExit) as excinfo:
+        module.verify_release_versions(files, "3.12.0-dryrun-af0ed25")
+    assert excinfo.value.code == 1
+
+
+def test_nuget_guard_still_rejects_a_stale_package_on_a_real_release(tmp_path) -> None:
+    module = _load("publish-nuget", "scripts/publish.py")
+    files = _nuget(tmp_path, "XbergIo.HtmlToMarkdown.3.11.6.nupkg")
+    with pytest.raises(SystemExit) as excinfo:
+        module.verify_release_versions(files, "3.12.0")
+    assert excinfo.value.code == 1
+
+
+def test_maven_guard_accepts_a_dry_run_suffixed_pom() -> None:
+    module = _load("publish-maven", "scripts/deploy.py")
+    normalize = module.normalize_release_version
+    # The comparison the guard performs, with both sides normalized as the fix makes them.
+    assert normalize("3.12.0-dryrun-af0ed25") == normalize("3.12.0-dryrun-af0ed25")
+    assert normalize("3.11.6") != normalize("3.12.0-dryrun-af0ed25")

@@ -131,7 +131,9 @@ def assert_dists_match_release(versions: set[tuple[str, str]], expected_version:
         )
         sys.exit(1)
 
-    mismatched = sorted(f"{name} {version}" for name, version in versions if version != expected_version)
+    mismatched = sorted(
+        f"{name} {version}" for name, version in versions if normalize_release_version(version) != expected_version
+    )
     if mismatched:
         print(
             f"Error: dist files carry version(s) that differ from the release version "

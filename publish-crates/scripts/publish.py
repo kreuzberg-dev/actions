@@ -196,10 +196,13 @@ def assert_crates_match_release(crate_versions: list[tuple[str, str | None]], ex
         )
         sys.exit(1)
 
+    # ~keep The unreadable guard above exits on any None, so every entry is non-None here;
+    # re-bound into a narrowed list so the declared type says so rather than suppressing it.
+    verified: list[tuple[str, str]] = [(c, v) for c, v in crate_versions if v is not None]
     mismatched = sorted(
         f"{crate} carries {crate_version}"
-        for crate, crate_version in crate_versions
-        if crate_version != expected_version
+        for crate, crate_version in verified
+        if normalize_release_version(crate_version) != expected_version
     )
     if mismatched:
         print(

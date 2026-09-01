@@ -258,7 +258,14 @@ def assert_artifacts_match_release(identities: list[tuple[str, str | None]], exp
         )
         sys.exit(1)
 
-    mismatched = sorted(f"{label} carries {version}" for label, version in identities if version != expected_version)
+    # ~keep The unreadable guard above exits on any None, so every entry is non-None here;
+    # re-bound into a narrowed list so the declared type says so rather than suppressing it.
+    verified: list[tuple[str, str]] = [(label, version) for label, version in identities if version is not None]
+    mismatched = sorted(
+        f"{label} carries {version}"
+        for label, version in verified
+        if normalize_release_version(version) != expected_version
+    )
     if mismatched:
         print(
             f"Error: artifact(s) carry a version other than the release version {expected_version}: "

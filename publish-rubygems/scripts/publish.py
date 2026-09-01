@@ -142,7 +142,14 @@ def assert_gems_match_release(gem_files: list[Path], expected_version: str) -> N
         )
         sys.exit(1)
 
-    mismatched = sorted(f"{name} carries {version}" for name, version in parsed if version != expected_version)
+    # ~keep The unparseable guard above exits on any None, so every entry is non-None here;
+    # re-bound into a narrowed list so the declared type says so rather than suppressing it.
+    verified: list[tuple[str, str]] = [(name, version) for name, version in parsed if version is not None]
+    mismatched = sorted(
+        f"{name} carries {version}"
+        for name, version in verified
+        if normalize_release_version(version) != expected_version
+    )
     if mismatched:
         print(
             f"Error: gem(s) carry a version other than the release version {expected_version}: {'; '.join(mismatched)}",
