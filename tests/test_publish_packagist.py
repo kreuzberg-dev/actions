@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 _SCRIPT_PATH = Path(__file__).resolve().parents[1] / "publish-packagist" / "scripts" / "publish.py"
 
 
@@ -76,3 +78,50 @@ def test_poll_packagist_timeout(monkeypatch):
     result = packagist_mod.poll_packagist("vendor/pkg", "1.2.3", max_attempts=3, poll_interval=0)
 
     assert result is False
+
+
+def _set_required_env(monkeypatch):
+    monkeypatch.setenv("INPUT_USERNAME", "myuser")
+    monkeypatch.setenv("INPUT_PACKAGE_NAME", "vendor/pkg")
+    monkeypatch.setenv("INPUT_VERSION", "1.2.3")
+    monkeypatch.setenv("INPUT_REPOSITORY_URL", "https://github.com/vendor/pkg")
+    monkeypatch.setenv("INPUT_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("INPUT_POLL_INTERVAL", "0")
+    monkeypatch.setenv("INPUT_DRY_RUN", "false")
+    monkeypatch.delenv("PACKAGIST_API_TOKEN", raising=False)
+
+
+def test_main_exits_nonzero_when_version_never_appears(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setattr(packagist_mod, "poll_packagist", lambda *args, **kwargs: False)
+
+    with pytest.raises(SystemExit) as excinfo:
+        packagist_mod.main()
+
+    assert excinfo.value.code == 1
+
+
+def test_main_exits_zero_when_version_is_found(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setattr(packagist_mod, "poll_packagist", lambda *args, **kwargs: True)
+
+    with pytest.raises(SystemExit) as excinfo:
+        packagist_mod.main()
+
+    assert excinfo.value.code == 0
+
+
+def test_main_polls_for_the_requested_version(monkeypatch):
+    _set_required_env(monkeypatch)
+    polled = []
+
+    def mock_poll(package_name, version, max_attempts, poll_interval):
+        polled.append((package_name, version, max_attempts, poll_interval))
+        return True
+
+    monkeypatch.setattr(packagist_mod, "poll_packagist", mock_poll)
+
+    with pytest.raises(SystemExit):
+        packagist_mod.main()
+
+    assert polled == [("vendor/pkg", "1.2.3", 3, 0)]

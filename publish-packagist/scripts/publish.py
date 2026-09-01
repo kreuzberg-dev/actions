@@ -97,8 +97,7 @@ def poll_packagist(package_name: str, version: str, max_attempts: int, poll_inte
         print(f"Attempt {attempt}/{max_attempts}: not yet available, waiting {poll_interval}s...")
         time.sleep(poll_interval)
 
-    print(f"Warning: {package_name}@{version} not found on Packagist after {max_attempts} attempts")
-    print("The package may still appear after webhook processing completes")
+    print(f"{package_name}@{version} not found on Packagist after {max_attempts} attempts", file=sys.stderr)
     return False
 
 
@@ -142,7 +141,19 @@ def main() -> None:
     else:
         print("No PACKAGIST_API_TOKEN set, relying on automatic webhook")
 
-    poll_packagist(package_name, version, max_attempts, poll_interval)
+    # ~keep The poll result decides the exit code. This is the only check that the release
+    # version actually reached Packagist: the API trigger is fire-and-forget and its failure is
+    # already downgraded to a warning above, so discarding this too made the action incapable of
+    # ever failing. A stale tag, a tag Packagist could not resolve, or an indexing failure would
+    # all conclude success having published nothing for `version`.
+    if not poll_packagist(package_name, version, max_attempts, poll_interval):
+        print(
+            f"Error: {package_name}@{version} is not on Packagist after {max_attempts} attempts. "
+            f"Nothing was published for {version}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     sys.exit(0)
 
 
