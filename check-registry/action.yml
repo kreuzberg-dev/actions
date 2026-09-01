@@ -30,7 +30,12 @@ inputs:
     required: false
     default: ""
   tag:
-    description: "GitHub release tag (defaults to v{version}) — github-release only."
+    description: >
+      GitHub release tag the caller expects to be queried — github-release only. `alef
+      check-registry` has no tag option: it always derives the tag from `version`, so this
+      cannot redirect the query. It is asserted instead — supplying a tag that names a
+      different version than `version` fails the step rather than silently answering about
+      the wrong release.
     required: false
     default: ""
   asset-prefix:
@@ -104,9 +109,21 @@ runs:
         SOURCE: ${{ inputs.source }}
         ASSET_PREFIX: ${{ inputs.asset-prefix }}
         REQUIRED_ASSETS: ${{ inputs.assets }}
+        TAG: ${{ inputs.tag }}
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
+
+        # ~keep `alef check-registry` takes no tag option — for `github-release` it derives the
+        # tag from `--version` — so the `tag` input cannot redirect the query and was declared,
+        # documented as an override, and then dropped on the floor. Two repos pass it. Assert the
+        # assumption the action silently makes instead: if the caller's tag names a version other
+        # than `version`, the answer would be about a different release, so say so rather than
+        # returning a confident result for the wrong tag.
+        if [[ -n "${TAG}" && "${TAG#v}" != "${VERSION#v}" ]]; then
+          echo "::error::tag ${TAG} and version ${VERSION} name different releases, and alef check-registry can only query the tag implied by version. Pass a tag that matches the version, or drop the tag input." >&2
+          exit 1
+        fi
 
         # A check that cannot be completed is reported as "not published". Every caller uses
         # this action as an idempotency guard in front of a publish step that is itself

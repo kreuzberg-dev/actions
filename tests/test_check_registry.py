@@ -96,6 +96,7 @@ def _execute(
     fail_exit_code: int = 1,
     broken_output: list[str] | None = None,
     flaky: list[str] | None = None,
+    tag: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     """Execute the action's own check step; return the process and its $GITHUB_OUTPUT keys."""
     bin_dir = tmp_path / "bin"
@@ -117,6 +118,7 @@ def _execute(
         "PACKAGE": package,
         "VERSION": "1.2.3",
         "EXTRA_PACKAGES": extra_packages,
+        "TAG": tag,
         "TAP_REPO": "",
         "REPO_INPUT": "",
         "SOURCE": "",
@@ -292,3 +294,27 @@ def test_a_retry_recovers_and_the_failed_attempt_output_is_discarded(tmp_path):
 def test_declared_outputs_are_wired_to_the_check_step(name):
     value = _action()["outputs"][name]["value"]
     assert value == f"${{{{ steps.{CHECK_STEP_ID}.outputs.{name} }}}}"
+
+
+def test_the_tag_input_reaches_the_check_step():
+    """The wiring the assertion depends on: a declared input that no step env carries is inert."""
+    step = next(step for step in _action()["runs"]["steps"] if step.get("id") == CHECK_STEP_ID)
+
+    assert step["env"]["TAG"] == "${{ inputs.tag }}"
+    assert "TAG" in step["run"], "the tag input is wired into the env but never consumed"
+
+
+def test_a_tag_naming_the_version_being_checked_is_accepted(tmp_path):
+    for tag in ("v1.2.3", "1.2.3", ""):
+        result, outputs = _execute(tmp_path, package="widget", extra_packages="", existing=["widget"], tag=tag)
+        assert result.returncode == 0, f"tag {tag!r} was rejected: {result.stderr}"
+        assert outputs["exists"] == "true"
+
+
+def test_a_tag_naming_a_different_release_fails_instead_of_answering_about_the_wrong_one(tmp_path):
+    """`alef check-registry` has no tag option, so the query would silently be about v1.2.3."""
+    result, outputs = _execute(tmp_path, package="widget", extra_packages="", existing=["widget"], tag="v1.2.4")
+
+    assert result.returncode == 1
+    assert "name different releases" in result.stderr
+    assert outputs == {}, "no result may be reported for a tag the check cannot honour"
