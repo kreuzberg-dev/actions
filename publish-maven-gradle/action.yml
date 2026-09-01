@@ -48,6 +48,14 @@ inputs:
     description: "Print the gradle command instead of executing"
     required: false
     default: "false"
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, the
+      Gradle project version must equal this or the action fails before publishing.
+      Leaving it empty preserves the old behaviour but disables the stale-artifact guard,
+      and the action warns loudly.
+    required: false
+    default: ""
 
 outputs:
   skipped:
@@ -114,6 +122,50 @@ runs:
           echo "Warning: MAVEN_GPG_PASSPHRASE not set — signing will fail unless gpg-agent has the passphrase cached." >&2
         fi
         [[ $missing -eq 0 ]] || exit 1
+
+    - name: Verify the Gradle project version matches the release
+      shell: bash
+      env:
+        WORKING_DIR: ${{ inputs.working-directory }}
+        NO_DAEMON: ${{ inputs.no-daemon }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
+      run: |
+        # ~keep This pre-flight is what makes the "already published, skipping" branch of the
+        # publish step safe, and the two must not be collapsed. That branch matches the broadest
+        # pattern of any publish action here over arbitrary Gradle output with no version
+        # anchoring, so a stale project resolves to a skip: tree-sitter-language-pack v1.16.0 and
+        # liter-llm v1.19.0 both reported success having published nothing because a stale
+        # artifact matched an already-published check for a version that was already live.
+        # Skipping is legitimate ONLY once the project version is known to be the release version.
+        if [[ -z "${INPUT_EXPECTED_VERSION:-}" ]]; then
+          echo "::warning::publish-maven-gradle was invoked without expected-version; a stale artifact cannot be detected and an 'already published' response will be treated as an idempotent skip. Pass the release version from the caller to close this gap."
+          exit 0
+        fi
+        expected="${INPUT_EXPECTED_VERSION#v}"
+        cd "$WORKING_DIR"
+        # gradle.properties is the cheap, exact source when the project uses it. Build scripts
+        # (build.gradle/.kts) cannot be parsed reliably by grep, so fall back to asking Gradle
+        # itself — `gradle properties -q` prints a `version: <x>` line for the resolved project.
+        version=""
+        if [[ -f gradle.properties ]]; then
+          version=$(grep -E '^[[:space:]]*version[[:space:]]*=' gradle.properties | head -1 | cut -d= -f2- | tr -d " \"'")
+        fi
+        if [[ -z "$version" || "$version" == "unspecified" ]]; then
+          gradle_flags=()
+          if [[ "$NO_DAEMON" == "true" ]]; then
+            gradle_flags+=(--no-daemon)
+          fi
+          version=$(gradle properties -q "${gradle_flags[@]}" 2>/dev/null | grep -E '^version:' | head -1 | cut -d: -f2- | tr -d " \"'" || true)
+        fi
+        if [[ -z "$version" || "$version" == "unspecified" ]]; then
+          echo "::error::expected-version ${expected} was supplied but the project version could not be determined in ${WORKING_DIR} (no version in gradle.properties and 'gradle properties -q' reported none), so the artifact cannot be verified"
+          exit 1
+        fi
+        if [[ "$version" != "$expected" ]]; then
+          echo "::error::the Gradle project declares version ${version} but the release being published is ${expected}. The artifact is stale; publishing it would ship the wrong version or be silently swallowed as an 'already published' skip."
+          exit 1
+        fi
+        echo "Verified the Gradle project carries the release version ${expected}"
 
     - name: Publish via Gradle
       id: publish

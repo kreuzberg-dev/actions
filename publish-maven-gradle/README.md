@@ -81,6 +81,7 @@ jobs:
 | `setup-java` | no | `true` | Run `actions/setup-java@v5`. |
 | `java-version` | no | `21` | JDK version when `setup-java=true`. |
 | `dry-run` | no | `false` | Print the command without executing. |
+| `expected-version` | no | `""` | Release version (leading `v` stripped). When set, the Gradle project version must equal it or the action fails before publishing. |
 
 ## Idempotency
 

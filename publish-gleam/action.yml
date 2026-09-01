@@ -30,6 +30,14 @@ inputs:
     description: "Perform a dry run without actually publishing"
     required: false
     default: "false"
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, the
+      gleam.toml version must equal this or the action fails before publishing.
+      Leaving it empty preserves the old behaviour but disables the stale-artifact guard,
+      and the action warns loudly.
+    required: false
+    default: ""
 
 outputs:
   skipped:
@@ -57,6 +65,37 @@ runs:
           echo "Set it in the calling workflow's env or job-level env block." >&2
           exit 1
         fi
+
+    - name: Verify gleam.toml carries the release version
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
+      run: |
+        # ~keep This pre-flight is what makes the "already published, skipping" branch of the
+        # publish step safe, and the two must not be collapsed. Skipping is legitimate ONLY when
+        # the version being skipped is the release version (an idempotent re-run); when the
+        # checked-out/built package is stale it is silent data loss. tree-sitter-language-pack
+        # v1.16.0 and liter-llm v1.19.0 both reported success having published nothing, because a
+        # stale artifact matched the already-published check for a version that was already live.
+        if [[ -z "${INPUT_EXPECTED_VERSION:-}" ]]; then
+          echo "::warning::publish-gleam was invoked without expected-version; a stale artifact cannot be detected and an 'already published' response will be treated as an idempotent skip. Pass the release version from the caller to close this gap."
+          exit 0
+        fi
+        expected="${INPUT_EXPECTED_VERSION#v}"
+        cd "$PACKAGE_DIR"
+        # Same parse as the dry-run summary below, with `\s` spelled as the POSIX class so it
+        # also works under BSD sed (where `\s` matches nothing and swallows the whole line).
+        version=$(grep '^version' gleam.toml | head -1 | sed 's/.*=[[:space:]]*"\(.*\)".*/\1/')
+        if [[ -z "$version" ]]; then
+          echo "::error::expected-version ${expected} was supplied but no version could be read from ${PACKAGE_DIR}/gleam.toml, so the package cannot be verified"
+          exit 1
+        fi
+        if [[ "$version" != "$expected" ]]; then
+          echo "::error::gleam.toml declares version ${version} but the release being published is ${expected}. The package is stale; publishing it would ship the wrong version or be silently swallowed as an 'already published' skip."
+          exit 1
+        fi
+        echo "Verified gleam.toml carries the release version ${expected}"
 
     - name: Build Gleam package
       shell: bash

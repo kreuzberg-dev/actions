@@ -60,6 +60,7 @@ jobs:
 | `dart-version` | no | `stable` | Dart SDK version (passed to `dart-lang/setup-dart`). |
 | `setup-dart` | no | `true` | Whether to invoke `dart-lang/setup-dart`. Set to `false` when Dart is already installed. |
 | `dry-run` | no | `false` | Skip the actual publish; only run validation. |
+| `expected-version` | no | `""` | Release version (leading `v` stripped). When set, `pubspec.yaml` must declare it or the action fails before publishing. |
 
 ## Outputs
 

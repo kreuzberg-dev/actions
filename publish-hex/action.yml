@@ -26,6 +26,14 @@ inputs:
     description: "Optional path to a pre-built Hex source tarball (.tar). When set, publishes this tarball instead of rebuilding. Recommended pairing: output from build-elixir-hex@v1."
     required: false
     default: ""
+  expected-version:
+    description: >
+      Version of the release being published (a leading `v` is stripped). When set, the
+      mix.exs version must equal this or the action fails before publishing.
+      Leaving it empty preserves the old behaviour but disables the stale-artifact guard,
+      and the action warns loudly.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -35,6 +43,45 @@ runs:
       with:
         elixir-version: "1.19"
         otp-version: "28"
+
+    - name: Verify mix.exs carries the release version
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_EXPECTED_VERSION: ${{ inputs.expected-version }}
+      run: |
+        # ~keep One pre-flight guards BOTH publish steps below (pre-built tarball and rebuild);
+        # it is what makes their "already published, skipping" branches safe, and the two must not
+        # be collapsed. The widest hole is `can only modify a release`, which Hex returns >1h after
+        # the original push and says nothing about WHICH version is live — so a stale project
+        # resolves to a skip. tree-sitter-language-pack v1.16.0 and liter-llm v1.19.0 both reported
+        # success having published nothing that way. Skipping is legitimate ONLY once the mix.exs
+        # version is known to be the release version.
+        if [[ -z "${INPUT_EXPECTED_VERSION:-}" ]]; then
+          echo "::warning::publish-hex was invoked without expected-version; a stale artifact cannot be detected and an 'already published' response will be treated as an idempotent skip. Pass the release version from the caller to close this gap."
+          exit 0
+        fi
+        expected="${INPUT_EXPECTED_VERSION#v}"
+        cd "$PACKAGE_DIR"
+        # mix.exs is Elixir source, not a config file: read the literal `version: "x"` from
+        # project/0, and fall back to the `@version "x"` module attribute that projects computing
+        # their version dynamically (`version: @version`) use instead.
+        version=$(grep -oE 'version: *"[^"]+"' mix.exs | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+        if [[ "$version" == *'#{'* ]]; then
+          version=""
+        fi
+        if [[ -z "$version" ]]; then
+          version=$(grep -oE '@version +"[^"]+"' mix.exs | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+        if [[ -z "$version" ]]; then
+          echo "::error::expected-version ${expected} was supplied but no version could be read from ${PACKAGE_DIR}/mix.exs (neither a literal 'version:' nor a '@version' attribute), so the package cannot be verified"
+          exit 1
+        fi
+        if [[ "$version" != "$expected" ]]; then
+          echo "::error::mix.exs declares version ${version} but the release being published is ${expected}. The package is stale; publishing it would ship the wrong version or be silently swallowed as an 'already published' skip."
+          exit 1
+        fi
+        echo "Verified mix.exs carries the release version ${expected}"
 
     - name: Verify Hex.pm availability
       if: inputs.dry-run != 'true'
