@@ -97,9 +97,21 @@ def _resolve_push_key() -> str:
     return ""
 
 
+DRY_RUN_TAG_MARKER = "-dryrun-"
+
+
 def normalize_release_version(version: str) -> str:
-    """Strip whitespace and a leading `v` so a tag (`v1.19.0`) compares to a gem filename version."""
-    return version.strip().removeprefix("v")
+    """Strip whitespace and a leading `v` so a tag (`v1.19.0`) compares to a gem filename version.
+
+    ~keep A dry run synthesizes its tag as `<version>-dryrun-<sha>` (see the
+    prepare-release-metadata action), a version no manifest will ever declare. Stripping the
+    suffix keeps the release-version assertion running on dry runs -- which is the point of a
+    dry run -- instead of failing every one of them on a correct checkout. Only the literal
+    `-dryrun-` marker is stripped, so a prerelease such as `1.2.3-rc.1` is compared in full.
+    """
+    normalized = version.strip().removeprefix("v")
+    marker_index = normalized.find(DRY_RUN_TAG_MARKER)
+    return normalized[:marker_index] if marker_index != -1 else normalized
 
 
 def assert_gems_match_release(gem_files: list[Path], expected_version: str) -> None:
