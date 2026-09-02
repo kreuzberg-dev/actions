@@ -174,16 +174,18 @@ runs:
       run: |
         "$GITHUB_ACTION_PATH/scripts/cargo-lock-hash.sh"
 
+    - name: Resolve Rust cache paths
+      if: inputs.disable-cache != 'true'
+      shell: bash
+      run: |
+        "$GITHUB_ACTION_PATH/scripts/resolve-cache-paths.sh"
+
     - name: Cache Rust build artifacts
       id: cache-rust
       if: inputs.disable-cache != 'true'
       uses: actions/cache@v6
       with:
-        path: |
-          ~/.cargo/registry/index
-          ~/.cargo/registry/cache
-          ~/.cargo/git/db
-          target/
+        path: ${{ env.RUST_CACHE_PATHS }}
         key: ${{ inputs.shared-core-cache == 'true' && format('shared-core-v4-{0}-{1}-{2}', runner.os, runner.arch, steps.cargo-hash.outputs.hash) || format('{0}-v4-{1}-{2}-{3}-{4}', inputs.cache-key-prefix, runner.os, runner.arch, inputs.target || 'default', steps.cargo-hash.outputs.hash) }}
         restore-keys: |
           ${{ inputs.shared-core-cache == 'true' && format('shared-core-v4-{0}-{1}-', runner.os, runner.arch) || format('{0}-v4-{1}-{2}-{3}-', inputs.cache-key-prefix, runner.os, runner.arch, inputs.target || 'default') }}
