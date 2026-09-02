@@ -4,6 +4,23 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`reusable-validate`: `r-install-deps-script` input.** `setup-r` installs the interpreter and
+  nothing else unless it is handed a script — its dependency step is gated on
+  `install-deps-script != ''` — and this workflow never passed one. An R snippet session whose
+  `before` needs devtools or rextendr therefore aborted while preparing itself with "there is no
+  package called 'devtools'", which `--strict` fails exactly like a real snippet failure: 289 of
+  the 1102 errors in html-to-markdown's CI Lint, none of them an actual bad snippet. Callers pass
+  the path of their own installer (html-to-markdown ships `scripts/ci/r/install-deps.sh`).
+  Omitting the input preserves the previous install-nothing behavior.
+- **`reusable-validate`: `setup-android` input.** A `kotlin_android` snippet session prepares
+  itself by running `./gradlew assembleDebug`, and the job had no Android SDK, so it aborted with
+  "SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable"
+  — another 235 of those 1102 errors. Opt-in and defaulting to false because installing an SDK
+  costs minutes on every run and only one caller validates kotlin_android snippets. Requires a
+  JDK, so enable `setup-java` alongside it. (`.github/workflows/reusable-validate.yml`)
+
 ## [1.11.2] - 2026-09-01
 
 ### Fixed

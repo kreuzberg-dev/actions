@@ -136,6 +136,16 @@ on:
         required: false
         type: string
         default: "4.4"
+      r-install-deps-script:
+        description: >-
+          Path, relative to the repository root, of an executable script that installs the R
+          packages the caller's R checks and snippet sessions need. Empty (the default) installs
+          nothing, which is exactly what every caller got before this input existed. An R snippet
+          session that runs devtools/rextendr aborts while preparing itself without it
+          ("there is no package called 'devtools'").
+        required: false
+        type: string
+        default: ""
       setup-swift:
         description: "Install the Swift toolchain so poly's swift-format checks and alef's swift snippet validation can run."
         required: false
@@ -156,6 +166,13 @@ on:
         required: false
         type: string
         default: "8.4"
+      setup-android:
+        description: >-
+          Install the Android SDK and accept its licences so a Gradle-driven check or snippet
+          session can run `./gradlew`. Requires a JDK, so enable `setup-java` alongside it.
+        required: false
+        type: boolean
+        default: false
       runner:
         description: "Runner label(s) to run on. Use a GitHub-hosted label such as ubuntu-latest or ubuntu-24.04-arm; the org self-hosted pools were retired."
         required: false
@@ -281,6 +298,18 @@ jobs:
           distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
 
+      # ~keep Ordered after `Set up Java` because sdkmanager and the Android Gradle Plugin both
+      # run on the JVM. Gated on its own opt-in input rather than folded into
+      # `check-fixture-snippets`: installing an SDK costs minutes of every run, and of the six
+      # callers of this workflow only html-to-markdown validates kotlin_android snippets. Without
+      # it that session aborts while preparing itself with "SDK location not found. Define a valid
+      # SDK location with an ANDROID_HOME environment variable" (235 of the 1102 errors). The
+      # action exports ANDROID_HOME/ANDROID_SDK_ROOT itself, so no extra wiring is needed; it is
+      # the same bare invocation html-to-markdown's own ci-e2e Kotlin/Android jobs already use.
+      - name: Set up Android SDK
+        if: ${{ inputs.setup-android }}
+        uses: android-actions/setup-android@v4
+
       - name: Set up Go
         if: ${{ inputs.setup-go }}
         uses: actions/setup-go@v7
@@ -350,11 +379,18 @@ jobs:
         with:
           version: ${{ inputs.zig-version }}
 
+      # ~keep setup-r installs the interpreter and nothing else: its dependency step is gated on
+      # `install-deps-script != ''`, and this workflow never passed one, so an R snippet session
+      # whose `before` needs devtools/rextendr aborted with "there is no package called 'devtools'"
+      # (html-to-markdown CI Lint, 289 of the 1102 session-preparation errors). Passed straight
+      # through and defaulting to empty, so a caller that does not set it keeps the previous
+      # install-nothing behaviour.
       - name: Set up R
         if: ${{ inputs.setup-r }}
         uses: xberg-io/actions/setup-r@v1
         with:
           r-version: ${{ inputs.r-version }}
+          install-deps-script: ${{ inputs.r-install-deps-script }}
 
       - name: Set up Swift
         if: ${{ inputs.setup-swift }}
