@@ -46,6 +46,18 @@ on:
         required: false
         type: string
         default: "temurin"
+      gradle-java-version:
+        description: >-
+          JDK for Gradle builds only, when Gradle needs a different one from the rest of the job.
+          `java-version` is what Maven, checkstyle and every other JVM tool run on, but a Gradle
+          build (notably the Android Gradle Plugin) often supports a narrower range, and a single
+          `alef snippets check` runs both a Maven session and a Gradle session in one process — so
+          the two cannot be separated by ordering steps. This installs a second JDK and points
+          Gradle at it via `org.gradle.java.home`, leaving JAVA_HOME on `java-version`. Empty (the
+          default) means Gradle runs on the same JDK as everything else, exactly as before.
+        required: false
+        type: string
+        default: ""
       setup-go:
         description: "Install Go and golangci-lint so poly's golangci-lint project check can run against Go bindings."
         required: false
@@ -291,12 +303,53 @@ jobs:
             uv pip install -e "$project"
           done <<< "$EXTRA_PROJECTS"
 
+      # ~keep Installed BEFORE the main JDK on purpose. setup-java points JAVA_HOME at whichever
+      # JDK it installed last, so running this one first leaves JAVA_HOME on `java-version` —
+      # Maven and checkstyle keep the JDK they need — while Gradle is redirected by property
+      # below. Its `path` output is used rather than an arch-suffixed JAVA_HOME_<v>_<arch>
+      # variable, because this workflow also runs on arm runners where that name differs.
+      - name: Set up the Gradle JDK
+        id: gradle-jdk
+        if: ${{ inputs.gradle-java-version != '' }}
+        uses: actions/setup-java@v6
+        with:
+          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.gradle-java-version }}
+
       - name: Set up Java
         if: ${{ inputs.setup-java }}
         uses: actions/setup-java@v6
         with:
           distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
+
+      # ~keep Written to GRADLE_USER_HOME rather than exported as JAVA_HOME, because the Gradle
+      # build is not a step here — it runs inside `alef snippets check`, which drives the Maven
+      # session and the Gradle session from one process. A step-scoped JAVA_HOME would move both.
+      # Gradle's documented precedence makes this the right lever: gradle.properties resolves
+      # GRADLE_USER_HOME > project root > GRADLE_HOME, so this also overrides a project's own
+      # value (html-to-markdown's is alef-generated and must not be hand-edited), and Gradle
+      # properties outrank the JAVA_HOME environment variable. Only the build JVM moves; the
+      # `gradlew` launcher still starts on JAVA_HOME.
+      - name: Point Gradle at the Gradle JDK
+        if: ${{ inputs.gradle-java-version != '' }}
+        env:
+          GRADLE_JDK: ${{ steps.gradle-jdk.outputs.path }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GRADLE_JDK}" ]; then
+            echo "::error::setup-java reported no install path for the Gradle JDK" >&2
+            exit 1
+          fi
+          properties="${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"
+          mkdir -p "$(dirname "$properties")"
+          if [ -f "$properties" ]; then
+            grep -v '^org\.gradle\.java\.home=' "$properties" > "$properties.tmp" || true
+            mv "$properties.tmp" "$properties"
+          fi
+          echo "org.gradle.java.home=${GRADLE_JDK}" >> "$properties"
+          echo "Gradle builds will run on ${GRADLE_JDK}:"
+          "${GRADLE_JDK}/bin/java" -version
 
       # ~keep Ordered after `Set up Java` because sdkmanager and the Android Gradle Plugin both
       # run on the JVM. Gated on its own opt-in input rather than folded into

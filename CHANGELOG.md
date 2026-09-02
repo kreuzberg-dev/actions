@@ -20,6 +20,16 @@ All notable changes to xberg-io/actions are documented in this file.
   — another 235 of those 1102 errors. Opt-in and defaulting to false because installing an SDK
   costs minutes on every run and only one caller validates kotlin_android snippets. Requires a
   JDK, so enable `setup-java` alongside it. (`.github/workflows/reusable-validate.yml`)
+- **`reusable-validate`: `gradle-java-version` input.** `java-version` is the JDK every JVM tool
+  in the job runs on, but Gradle — the Android Gradle Plugin especially — usually supports a
+  narrower range than Maven does, and one `alef snippets check` drives a Maven session and a
+  Gradle session from a single process, so the two cannot be separated by ordering steps or by
+  scoping `JAVA_HOME` to one step. Setting this installs a second JDK and points Gradle at it
+  through `org.gradle.java.home` in `GRADLE_USER_HOME/gradle.properties`, which Gradle resolves
+  ahead of a project's own `gradle.properties` and ahead of the `JAVA_HOME` environment variable,
+  leaving Maven and checkstyle on `java-version`. Only the Gradle build JVM moves; the `gradlew`
+  launcher still starts on `JAVA_HOME`. Empty (the default) keeps one JDK for everything, exactly
+  as before. (`.github/workflows/reusable-validate.yml`)
 
 ## [1.11.2] - 2026-09-01
 
