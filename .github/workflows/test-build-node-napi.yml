@@ -70,6 +70,10 @@ jobs:
           #[napi]
           pub fn add(a: i32, b: i32) -> i32 { a + b }
           RS
+          # TWO targets on purpose, while the job only ever BUILDS one. A single-target
+          # fixture makes `napi artifacts` trivially satisfiable, which is exactly why
+          # this suite stayed green while every consumer's Node publish leg failed with
+          # "Missing artifacts for configured targets". Do not reduce this to one. ~keep
           cat >packages/node/package.json <<'JSON'
           {
             "name": "fixture-napi",
@@ -81,7 +85,7 @@ jobs:
             "files": ["index.js", "index.d.ts", "*.node"],
             "napi": {
               "binaryName": "fixture-napi",
-              "targets": ["x86_64-unknown-linux-gnu"]
+              "targets": ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
             },
             "devDependencies": {
               "@napi-rs/cli": "3.7.2"
