@@ -31,7 +31,7 @@ jobs:
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          allowed='^(bug|feat|docs|chore|refactor|test|ci|perf|build)(\([a-z0-9._-]+\))?: .{8,}$'
+          allowed='^(bug|fix|feat|docs|chore|refactor|test|ci|perf|build)(\([a-z0-9._-]+\))?: .{8,}$'
           if echo "$ISSUE_TITLE" | grep -qE "$allowed"; then
             prefix=$(echo "$ISSUE_TITLE" | cut -d: -f1)
             echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
@@ -42,7 +42,7 @@ jobs:
             OWNER | MEMBER | COLLABORATOR)
               echo "::error::Issue title must match: <type>: <description with at least 8 chars>"
               echo ""
-              echo "Valid types: bug, feat, docs, chore, refactor, test, ci, perf, build"
+              echo "Valid types: bug, fix, feat, docs, chore, refactor, test, ci, perf, build"
               echo ""
               echo "Examples:"
               echo "  bug: extraction returns empty result for password-protected PDF"
@@ -73,7 +73,7 @@ jobs:
             '' \
             'Expected format: `<type>: <description with at least 8 chars>`' \
             '' \
-            'Valid types: `bug`, `feat`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`' \
+            'Valid types: `bug`, `fix`, `feat`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build`' \
             '' \
             'Examples:' \
             '- `bug: extraction returns empty result for password-protected PDF`' \
