@@ -119,7 +119,47 @@ runs:
         fi
         pnpm exec "${napi_args[@]}"
         if [ "${COLLECT_ARTIFACTS}" = "true" ]; then
-          pnpm exec napi artifacts --output-dir . --npm-dir "${NPM_DIR}"
+          # `napi artifacts` validates against EVERY target listed in package.json's
+          # `napi.targets` and aborts with "Missing artifacts for configured targets"
+          # if any one of them is absent. In a per-target matrix leg only this leg's
+          # binary exists, so it demanded the other legs' output and failed EVERY leg
+          # of every publish run -- which is what pinned crawlberg's npm package at
+          # 1.4.2 and tslp's at 1.15.8 while crates.io, PyPI and RubyGems all moved on.
+          # There is no aggregating invocation of this action to move the call into:
+          # this step is the only place it has ever run.
+          #
+          # Stage this leg's own artifact instead. The destination is matched against
+          # the platform directories `napi create-npm-dirs` just created, rather than
+          # parsed out of the filename or derived from a target-triple-to-platform
+          # table -- napi owns both names, so letting it supply them keeps this correct
+          # when napi's platform naming changes. ~keep
+          shopt -s nullglob
+          built=(*.node)
+          shopt -u nullglob
+          if [ ${#built[@]} -eq 0 ]; then
+            echo "::error::napi build produced no .node file in $(pwd)"
+            ls -la
+            exit 1
+          fi
+          staged=0
+          for dir in "${NPM_DIR}"/*/; do
+            [ -d "${dir}" ] || continue
+            platform="$(basename "${dir}")"
+            for node_file in "${built[@]}"; do
+              case "${node_file}" in
+                *".${platform}.node")
+                  cp "${node_file}" "${dir}"
+                  echo "Staged ${node_file} -> ${dir}"
+                  staged=$((staged + 1))
+                  ;;
+              esac
+            done
+          done
+          if [ "${staged}" -eq 0 ]; then
+            echo "::error::No platform dir under ${NPM_DIR}/ matched the built artifact(s): ${built[*]}"
+            ls -la "${NPM_DIR}" || true
+            exit 1
+          fi
         fi
 
     - name: Verify platform-specific .node file was staged
