@@ -124,6 +124,11 @@ prune_target_intermediates() {
 	df -h "$target_dir" | tail -1
 }
 
+# `df` exits non-zero on a path that does not exist, and under `set -euo pipefail` that
+# aborts the job before a single target is built. The target directory is created by the
+# first cargo invocation, so it is absent here whenever no cache restored it. A disk-space
+# diagnostic must not decide whether the build runs. ~keep
+mkdir -p "$target_dir"
 echo "=== Disk space before building ==="
 df -h "$target_dir" | tail -1
 
