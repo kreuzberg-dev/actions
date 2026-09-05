@@ -19,6 +19,15 @@ exclude = [
 ]
 
 [per-file-ignores]
+# --- quality-debt baseline (generated) ---
+# 1 size/complexity findings across 1 files that predate these
+# metrics. Listed per file rather than switching the rules off, so the metrics still
+# fire on every file NOT listed here -- new code stays covered, and each path below is
+# one discrete unit of work.
+# TODO(quality-debt): pay this down file by file and delete each entry as it goes green.
+# Do not add new paths here without a very good reason. ~keep
+"publish-maven/scripts/deploy.py" = ["function-too-long"]
+# --- end quality-debt baseline ---
 # Stylistic rules disabled repo-wide. Each is a formatting or idiom preference with no
 # correctness or security consequence, and each fires in volumes no one can hand-maintain
 # (`require-unicode-regexp` alone was 724 across the polyrepo, `no-inline-comments` 200).
