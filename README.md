@@ -116,6 +116,7 @@ not step outputs: a composite action propagates only the outputs it declares, so
 | `upload-release-assets` | Generic GH Release uploader; glob-expand a list of paths/patterns and upload with `--clobber` |
 | `verify-release-assets` | Verify the GH Release contains every expected asset (fnmatch patterns, optional min size) |
 | `finalize-release` | Edit GH Release from draft → published, set/clear prerelease, optionally create Go module tag |
+| `retract-incomplete-release` | Return an incomplete release to draft — but only while no Homebrew tap or Scoop bucket already advertises its assets, since re-drafting there 404s every install that resolves through them |
 | `render-runtime-json` | Render a NuGet `runtime.json` from a `runtime.json.template`, substituting the release version for the `{{VERSION}}` token before `dotnet pack` |
 | `announce-release-discord` | Post a release announcement to Discord (skips RC tags, dedup via release-asset marker) |
 

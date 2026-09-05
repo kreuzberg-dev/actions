@@ -6,6 +6,18 @@ All notable changes to xberg-io/actions are documented in this file.
 
 ### Added
 
+- **`retract-incomplete-release` action.** A publish run creates its release as a draft,
+  promotes it out of draft early so cargo-binstall and the bottle builders have resolvable
+  assets, then publishes the registry targets; when one fails, `release-report` put the
+  release back into draft. That is safe only until a channel has been pointed at it. A
+  Homebrew formula pins `root_url .../releases/download/<tag>` and a Scoop manifest pins the
+  same asset URLs, so once either is pushed to its public tap or bucket the draft state stops
+  being private bookkeeping and becomes a 404 for every `brew upgrade` — which is exactly how
+  crawlberg v1.5.0 left the tap advertising assets nobody could download for two days
+  (xberg-io/crawlberg#41). The new action takes the results of the jobs that publish those
+  channels and retracts only when none of them published; otherwise it reports the incomplete
+  release loudly and leaves it published, to be rolled forward by the next release. It never
+  fails the step, since the caller has already failed the job on the release verdict.
 - **`reusable-validate`: `r-install-deps-script` input.** `setup-r` installs the interpreter and
   nothing else unless it is handed a script — its dependency step is gated on
   `install-deps-script != ''` — and this workflow never passed one. An R snippet session whose

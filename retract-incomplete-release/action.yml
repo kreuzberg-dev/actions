@@ -1,0 +1,58 @@
+name: Retract Incomplete Release
+description: >
+  Return a GitHub Release to draft after a publish run failed to reach every
+  enabled target — but only while no downstream channel has already been
+  pointed at that release. A Homebrew formula or Scoop manifest resolves
+  `.../releases/download/<tag>/...`, so re-drafting a release those channels
+  already advertise turns a partial release into a hard 404 for every install.
+  When a channel has published, this action reports the incomplete release
+  loudly and leaves it published instead.
+
+inputs:
+  tag:
+    description: "Git tag of the release to retract"
+    required: true
+  consumer-results:
+    description: >
+      Results of the jobs that publish a channel resolving
+      `.../releases/download/<tag>/...` — the Homebrew formula/bottle jobs and
+      the Scoop manifest job. Comma- or newline-separated. Entries may be a
+      bare job result ("success") or a named pair ("homebrew=success") so the
+      report can name the channel that blocked the retraction. Any entry
+      whose result is `success` blocks the retraction. Leave empty when the
+      release has no such consumers, in which case retraction always proceeds.
+    required: false
+    default: ""
+  dry-run:
+    description: "Print the intended action without modifying the release"
+    required: false
+    default: "false"
+  token:
+    description: "GitHub token for authentication"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  retracted:
+    description: >
+      One of: `true` (returned to draft), `blocked` (left published because a
+      channel already advertises it), `dry-run`, or `error` (the edit failed).
+    value: ${{ steps.retract.outputs.retracted }}
+  blocking-consumers:
+    description: "Comma-separated names of the consumers that blocked retraction, if any"
+    value: ${{ steps.retract.outputs.blocking-consumers }}
+
+runs:
+  using: composite
+  steps:
+    - name: Retract incomplete release
+      id: retract
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_CONSUMER_RESULTS: ${{ inputs.consumer-results }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        python3 "${{ github.action_path }}/scripts/retract_incomplete_release.py"
