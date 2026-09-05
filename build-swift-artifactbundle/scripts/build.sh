@@ -94,43 +94,6 @@ bundle_dir="$OUTPUT_DIR/$ARTIFACT_NAME.artifactbundle"
 rm -rf "$bundle_dir"
 mkdir -p "$bundle_dir"
 
-echo "=== Building Apple targets ==="
-echo "Building aarch64-apple-darwin..."
-# shellcheck disable=SC2086
-cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-darwin
-
-if [[ "$INCLUDE_MACOS_X86_64" == "true" ]]; then
-	echo "Building x86_64-apple-darwin..."
-	# shellcheck disable=SC2086
-	cargo build --locked -p "$CRATE_NAME" $profile_flag --target x86_64-apple-darwin
-else
-	echo "Skipping x86_64-apple-darwin (include-macos-x86_64=false)"
-fi
-
-echo "Building aarch64-apple-ios..."
-# shellcheck disable=SC2086
-cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-ios
-
-echo "Building aarch64-apple-ios-sim..."
-# shellcheck disable=SC2086
-cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-ios-sim
-
-if [[ "$INCLUDE_IOS_X86_64" == "true" ]]; then
-	echo "Building x86_64-apple-ios..."
-	# shellcheck disable=SC2086
-	cargo build --locked -p "$CRATE_NAME" $profile_flag --target x86_64-apple-ios
-else
-	echo "Skipping x86_64-apple-ios (include-ios-x86_64=false)"
-fi
-
-echo "=== Building Linux targets (cargo-zigbuild) ==="
-
-echo "Building aarch64-unknown-linux-gnu..."
-# shellcheck disable=SC2086
-cargo zigbuild --locked -p "$CRATE_NAME" $profile_flag --target aarch64-unknown-linux-gnu
-echo "Building x86_64-unknown-linux-gnu..."
-# shellcheck disable=SC2086
-cargo zigbuild --locked -p "$CRATE_NAME" $profile_flag --target x86_64-unknown-linux-gnu
 case "$BUILD_PROFILE" in
 release)
 	target_subdir="release"
@@ -143,6 +106,71 @@ dev | debug)
 	;;
 esac
 
+# Six targets are built back to back and every one leaves a full per-target tree behind. On a
+# hosted macOS runner the sum overflows the disk before the copy step -- an observed failure was
+# `fcopyfile failed: No space left on device` on the third archive, with 1258 sccache write
+# errors just before it. Only `lib<name>.a`, which sits directly in the profile directory, is
+# needed after a target is built, so drop that target's intermediates as soon as it finishes.
+# This trades some warm-cache reuse for a build that fits. ~keep
+prune_target_intermediates() {
+	local triple="$1"
+	local dir="$target_dir/$triple/$target_subdir"
+	if [[ ! -d "$dir" ]]; then
+		echo "  no build directory for $triple at $dir; nothing to prune"
+		return 0
+	fi
+	rm -rf "$dir/deps" "$dir/build" "$dir/incremental" "$dir/examples"
+	echo "  pruned intermediates for $triple; free space now:"
+	df -h "$target_dir" | tail -1
+}
+
+echo "=== Disk space before building ==="
+df -h "$target_dir" | tail -1
+
+echo "=== Building Apple targets ==="
+echo "Building aarch64-apple-darwin..."
+# shellcheck disable=SC2086
+cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-darwin
+prune_target_intermediates aarch64-apple-darwin
+
+if [[ "$INCLUDE_MACOS_X86_64" == "true" ]]; then
+	echo "Building x86_64-apple-darwin..."
+	# shellcheck disable=SC2086
+	cargo build --locked -p "$CRATE_NAME" $profile_flag --target x86_64-apple-darwin
+	prune_target_intermediates x86_64-apple-darwin
+else
+	echo "Skipping x86_64-apple-darwin (include-macos-x86_64=false)"
+fi
+
+echo "Building aarch64-apple-ios..."
+# shellcheck disable=SC2086
+cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-ios
+prune_target_intermediates aarch64-apple-ios
+
+echo "Building aarch64-apple-ios-sim..."
+# shellcheck disable=SC2086
+cargo build --locked -p "$CRATE_NAME" $profile_flag --target aarch64-apple-ios-sim
+prune_target_intermediates aarch64-apple-ios-sim
+
+if [[ "$INCLUDE_IOS_X86_64" == "true" ]]; then
+	echo "Building x86_64-apple-ios..."
+	# shellcheck disable=SC2086
+	cargo build --locked -p "$CRATE_NAME" $profile_flag --target x86_64-apple-ios
+	prune_target_intermediates x86_64-apple-ios
+else
+	echo "Skipping x86_64-apple-ios (include-ios-x86_64=false)"
+fi
+
+echo "=== Building Linux targets (cargo-zigbuild) ==="
+
+echo "Building aarch64-unknown-linux-gnu..."
+# shellcheck disable=SC2086
+cargo zigbuild --locked -p "$CRATE_NAME" $profile_flag --target aarch64-unknown-linux-gnu
+prune_target_intermediates aarch64-unknown-linux-gnu
+echo "Building x86_64-unknown-linux-gnu..."
+# shellcheck disable=SC2086
+cargo zigbuild --locked -p "$CRATE_NAME" $profile_flag --target x86_64-unknown-linux-gnu
+prune_target_intermediates x86_64-unknown-linux-gnu
 echo "=== Creating artifact bundle structure ==="
 mkdir -p "$bundle_dir/$ARTIFACT_NAME-macos-arm64"
 if [[ "$INCLUDE_MACOS_X86_64" == "true" ]]; then
