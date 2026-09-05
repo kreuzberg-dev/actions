@@ -58,6 +58,17 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: ${{ inputs.build-command }}
 
+      # Prose lint is opt-in by presence: a repo gets it as soon as it has a
+      # .textlintrc.json, and repos without one (sceptre) are skipped. The
+      # install and the run are both root-relative because every consumer
+      # declares textlint in its root package.json, and because the config and
+      # .textlintignore paths are written relative to the repo root.
+      - name: Lint prose
+        if: ${{ hashFiles('.textlintrc.json') != '' }}
+        run: |
+          pnpm install --frozen-lockfile
+          npx textlint '${{ inputs.working-directory }}/src/content/docs/**/*.{md,mdx}'
+
       - name: Upload Pages artifact
         if: ${{ inputs.deploy }}
         uses: actions/upload-pages-artifact@v5
